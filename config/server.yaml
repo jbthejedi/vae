@@ -1,0 +1,25 @@
+name: vae-conv-save
+data_root: /workspace/data
+dataset_name: 'cifar10'
+
+batch_size: 256
+image_size: 224
+n_epochs: 50
+num_channels: 3
+
+num_workers: 8
+
+artifact_name: jbarry-team/${project}/${name}-best-model:latest
+download_data: False
+wandb_mode: online
+# wandb_mode: disabled
+
+local_visualization: False
+save_model: True
+load_and_test_model: False
+train_model: True
+
+# model_type: mlp
+# model_type: unet
+model_type: conv
+summary: False
