@@ -175,3 +175,6 @@ cifar*
 
 
 .DS_Store
+
+.vscode/
+*.pth

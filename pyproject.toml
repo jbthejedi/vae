@@ -1,0 +1,22 @@
+[project]
+name = "vae"
+version = "0.0.1"
+description = "Implementation of vae"
+authors = [
+    {name = "Justin Barry",email = "justinbarrythejedi@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = "^3.10"
+dependencies = [
+    "torch (>=2.7.0,<3.0.0)",
+    "torchvision (>=0.22.0,<0.23.0)",
+    "matplotlib (>=3.10.3,<4.0.0)",
+    "numpy (>=2.2.6,<3.0.0)",
+    "tqdm (>=4.67.1,<5.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
