@@ -1,0 +1,16 @@
+name: vae-server
+device: cuda
+data_root: /workspace/vae/data/
+
+batch_size: 256
+image_size: 128
+n_epochs: 20
+num_channels: 3
+
+num_workers: 4
+
+artifact_name: jbarry-team/vae-cifar10/
+
+local_visualization: False
+save_model: False
+download_data: True
