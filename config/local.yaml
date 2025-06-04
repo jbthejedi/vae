@@ -4,13 +4,16 @@ data_root: /Users/justinbarry/projects/data/
 
 batch_size: 128
 image_size: 128
-n_epochs: 1
+n_epochs: 20
 num_channels: 3
 
 num_workers: 4
 
-artifact_name: jbarry-team/unet-oxford-pet/resnetunet-add-augmentation-enhanced_best_model:latest
-
+artifact_name: jbarry-team/vae-cifar10/vae-local_best_model:latest
 local_visualization: True
-save_model: False
+save_model: True
 download_data: False
+wandb_mode: online
+
+load_and_test_model: True
+train_model: False

@@ -176,6 +176,7 @@ cifar*
 
 .DS_Store
 
+wandb
 .vscode/
 *.pth
 

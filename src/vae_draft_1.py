@@ -174,10 +174,13 @@ def train_test_model(config):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
-    best_train_loss = 'inf'
+    best_train_loss = float('inf')
+    train_epoch_loss = 0.0
     for epoch in range(1, config.n_epochs+1):
         tqdm.write(f"Epoch {epoch}/{config.n_epochs+1}")
         model.train()
+        total_loss = 0.0
+        train_total = 0
         with tqdm(train_dl, desc="Training") as pbar:
             for inputs, _ in pbar:
                 inputs = inputs.to(device)
@@ -188,14 +191,16 @@ def train_test_model(config):
                 loss.backward()
                 optimizer.step()
 
-                total_loss += loss.item() * inputs.shape(0)
-                train_total += inputs.shape(0)
+                total_loss += loss.item() * inputs.size(0)
+                train_total += inputs.size(0)
+
                 pbar.set_postfix(batch_loss=loss.item())
         train_epoch_loss = total_loss / train_total
-        if train_epoch_loss < best_train_loss: best_train_loss = train_epoch_loss
-        if config.device == 'cuda' and config.save_model and train_epoch_loss > best_train_loss:
+        tqdm.write(f"Loss: {train_epoch_loss}")
+
+        if config.save_model and (train_epoch_loss < best_train_loss):
+            best_train_loss = train_epoch_loss
             tqdm.write("Writing best model...")
-            best_val_dice = train_epoch_loss
             torch.save(model.state_dict(), "best_model.pth")
             artifact = wandb.Artifact(name=f"{config.name}_best_model", type="model")
             artifact.add_file("best_model.pth")
@@ -226,6 +231,41 @@ def load_config(env="local"):
 
     return config
 
+def load_and_test_model(config):
+    api = wandb.Api()
+    artifact_name = config.artifact_name
+    try:
+        artifact = api.artifact(artifact_name, type='model')
+        artifact_dir = artifact.download()
+
+        # Load model
+        input_dims = config.num_channels * config.image_size * config.image_size
+        model = VAE(input_dims).to(config.device)
+        model.load_state_dict(torch.load(f"{artifact_dir}/best_model.pth", map_location="cpu"))
+        model.eval()
+        print("Model loaded successfully.")
+
+        dataset = datasets.CIFAR10(
+            root=config.data_root,
+            download=False,
+            transform=T.Compose([
+                T.Resize((config.image_size, config.image_size)),
+                T.ToTensor(),
+            ])
+        )
+        print("Dataset loaded")
+        train_dl = DataLoader(
+            dataset,
+            batch_size=config.batch_size,
+            # shuffle=True,
+            num_workers=config.num_workers,
+        )
+        show_reconstructions(config, model, train_dl)
+        interpolate_latents(config, model, dataset, num_steps=10)
+    except wandb.CommError as e:
+        print(f"Artifact not found: {artifact_name}")
+        print(f"Error: {e}")
+        exit(0)
 
 def main():
     env = os.environ.get("ENV", "local")
@@ -236,7 +276,10 @@ def main():
     # for alpha in torch.linspace(0, 1, steps=num_steps):
     #     z = (1 - alpha) * mu1 + alpha * mu2
 
-    train_test_model(config)
+    if config.load_and_test_model:
+        load_and_test_model(config)
+    elif config.train_model:
+        train_test_model(config)
 
 
 if __name__ == '__main__':

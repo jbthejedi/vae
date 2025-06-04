@@ -14,3 +14,4 @@ artifact_name: jbarry-team/vae-cifar10/
 local_visualization: False
 save_model: False
 download_data: True
+wandb_mode: online
