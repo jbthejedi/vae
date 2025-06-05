@@ -3,3 +3,4 @@ seed: 1337
 project: vae-cifar10
 p_dropout: 0.1
 lr: 1e-3
+p_train_len: 0.9

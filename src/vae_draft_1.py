@@ -14,8 +14,6 @@ from tqdm import tqdm
 
 from omegaconf import OmegaConf
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 class VAE(nn.Module):
     def __init__(
         self,
@@ -64,7 +62,7 @@ def show_reconstructions(config, model, data_loader, num_images=8):
     model.eval()
     with torch.no_grad():
         for inputs, _ in data_loader:
-            inputs = inputs.to(device)
+            inputs = inputs.to(config.device)
             inputs_flat = torch.flatten(inputs, start_dim=1)
             x_hat, _, _ = model(inputs_flat)
             x_hat = torch.sigmoid(x_hat)  # output logits → probability
@@ -88,7 +86,7 @@ def show_reconstructions(config, model, data_loader, num_images=8):
 def show_samples(config, model, latent_dim=16, num_images=8):
     model.eval()
     with torch.no_grad():
-        z = torch.randn(num_images, latent_dim).to(device)
+        z = torch.randn(num_images, latent_dim).to(config.device)
         x_sample = model.decode(z)
         x_sample = torch.sigmoid(x_sample).view(
             -1, config.num_channels, config.image_size, config.image_size).cpu()
@@ -109,8 +107,8 @@ def interpolate_latents(config, model, dataset, num_steps=10):
         img1, _ = dataset[indices[0]]
         img2, _ = dataset[indices[1]]
 
-        x1 = img1.view(1, -1).to(device)
-        x2 = img2.view(1, -1).to(device)
+        x1 = img1.view(1, -1).to(config.device)
+        x2 = img2.view(1, -1).to(config.device)
 
         # Encode both to get means
         mu1, _ = model.encode(x1)
@@ -142,29 +140,38 @@ def train_test_model(config):
         config=config_dict,
         mode=config.wandb_mode,
     )
-    transform = T.Compose([
-        T.Resize((config.image_size, config.image_size)),
-        T.ToTensor(),
-    ])
-    dataset = datasets.CIFAR10(
-        root=config.data_root,
-        download=False,
-        transform=transform,
-    )
-    # transform = T.Compose([
-    #     T.ToTensor(),
-    # ])
-    # dataset = datasets.MNIST(
-    #     root='/Users/justinbarry/projects/vision-transformer/data',
-    #     download=False,
-    #     transform=transform,
-    # )
+    if config.dataset_name == 'cifar10':
+        dataset = datasets.CIFAR10(
+            root=config.data_root,
+            download=False,
+            transform=T.Compose([
+                T.Resize((config.image_size, config.image_size)),
+                T.ToTensor(),
+            ])
+        )
+    
+    if config.dataset_name == 'minst':
+        dataset = datasets.MNIST(
+            root='/Users/justinbarry/projects/vision-transformer/data',
+            download=False,
+            transform=T.Compose([
+                T.ToTensor(),
+            ]),
+        )
     print("Dataset loaded")
 
+    train_len = int(len(dataset) * config.p_train_len)
+    train_ds, val_ds = random_split(dataset, [train_len, len(dataset) - train_len])
+
     train_dl = DataLoader(
-        dataset,
+        train_ds,
         batch_size=config.batch_size,
         shuffle=True,
+        num_workers=config.num_workers,
+    )
+    val_dl = DataLoader(
+        val_ds,
+        batch_size=config.batch_size,
         num_workers=config.num_workers,
     )
 
@@ -174,8 +181,9 @@ def train_test_model(config):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
-    best_train_loss = float('inf')
+    best_val_loss = float('inf')
     train_epoch_loss = 0.0
+    val_epoch_loss = 0.0
     for epoch in range(1, config.n_epochs+1):
         tqdm.write(f"Epoch {epoch}/{config.n_epochs+1}")
         model.train()
@@ -183,7 +191,7 @@ def train_test_model(config):
         train_total = 0
         with tqdm(train_dl, desc="Training") as pbar:
             for inputs, _ in pbar:
-                inputs = inputs.to(device)
+                inputs = inputs.to(config.device)
                 inputs = torch.flatten(inputs, start_dim=1)
                 optimizer.zero_grad()
                 x_hat, mu, logvar = model(inputs)
@@ -196,10 +204,26 @@ def train_test_model(config):
 
                 pbar.set_postfix(batch_loss=loss.item())
         train_epoch_loss = total_loss / train_total
-        tqdm.write(f"Loss: {train_epoch_loss}")
+        tqdm.write(f"Train Loss: {train_epoch_loss}")
 
-        if config.save_model and (train_epoch_loss < best_train_loss):
-            best_train_loss = train_epoch_loss
+        with tqdm(val_dl, desc="Validation") as pbar:
+            model.eval()
+            with torch.no_grad():
+                total_loss = 0.0
+                val_total = 0.0
+                for inputs, _ in pbar:
+                    inputs = inputs.to(config.device)
+                    inputs = torch.flatten(inputs, start_dim=1)
+                    x_hat, mu, logvar = model(inputs)
+                    loss = vae_loss(inputs, x_hat, mu, logvar)
+                    total_loss += loss.item() * inputs.size(0)
+                    val_total += inputs.size(0)
+                    pbar.set_postfix(batch_loss=loss.item())
+                val_epoch_loss = total_loss / val_total
+        tqdm.write(f"Val Loss: {val_epoch_loss}")
+
+        if config.save_model and (val_epoch_loss < best_val_loss):
+            best_val_loss = val_epoch_loss
             tqdm.write("Writing best model...")
             torch.save(model.state_dict(), "best_model.pth")
             artifact = wandb.Artifact(name=f"{config.name}_best_model", type="model")
@@ -210,6 +234,7 @@ def train_test_model(config):
         wandb.log({
             "epoch": epoch,
             "train/loss": train_epoch_loss,
+            "val/loss": val_epoch_loss,
         })
     
     if config.local_visualization:
@@ -257,7 +282,6 @@ def load_and_test_model(config):
         train_dl = DataLoader(
             dataset,
             batch_size=config.batch_size,
-            # shuffle=True,
             num_workers=config.num_workers,
         )
         show_reconstructions(config, model, train_dl)
@@ -270,6 +294,7 @@ def load_and_test_model(config):
 def main():
     env = os.environ.get("ENV", "local")
     config = load_config(env)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # mu1, mu2 = 1, 3
     # num_steps = 10
