@@ -70,22 +70,24 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 
 
-class VAEConvolutions(nn.Module):
-    def __init__(self, in_channels, latent_dims, p_dropout):
+class VAEUnet(nn.Module):
+    def __init__(self, in_channels, latent_dims, p_dropout, image_size):
         super().__init__()
         """
         Assumptions for dimension calculations
         H_in, W_in = 224
-        {H/W}_out = [({H/W}_in + 2p - d(k - 1) - 1) / s] + 1
+        Conv:          {h/w}_out = [({h/w}_in + 2p - d(k - 1) - 1) / s] + 1
+        ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
         """
-        self.layer0 = nn.Sequential( # -> (64, 74, 74)
+        self.image_size = image_size
+        self.layer0 = nn.Sequential( # -> (64, 75, 75)
             nn.Conv2d(in_channels, 64, kernel_size=7, stride=3, padding=3),
             nn.BatchNorm2d(num_features=64),
             nn.ReLU(inplace=True),
         )
-        self.pool0 = nn.MaxPool2d(2) # -> (64, 36, 36)
+        self.pool0 = nn.MaxPool2d(2) # -> (64, 37, 37)
 
-        self.conv1 = DoubleConv(64, 128, p_dropout) # -> (128, 36, 36)
+        self.conv1 = DoubleConv(64, 128, p_dropout) # -> (128, 37, 37)
         # MaxPool2d stride=2 by default
         self.pool1 = nn.MaxPool2d(2) # -> (128, 18, 18)
 
@@ -94,20 +96,47 @@ class VAEConvolutions(nn.Module):
 
         self.conv3 = DoubleConv(256, 512, p_dropout) # -> (512, 9, 9)
 
-        C, W, H = 512, 9, 9
-        self.fc_mu = nn.Linear(C*W*H, latent_dims) # -> (512*9*9, 64)
-        self.fc_logvar = nn.Linear(C*W*H, latent_dims) # -> (512*9*9, 64)
+        C, H, W = self._get_flattened_shape(in_channels)
+        self.flattened_dim = C * H * W
+        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims) # -> (512*9*9, 64)
+        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (512*9*9, 64)
 
         self.fc_up = nn.Linear(latent_dims, C*W*H) # -> (64, 512*9*9)
 
         self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (256, 18, 18)
         self.refine2 = DoubleConv(512, 256, p_dropout)
 
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2) # -> (128, 36, 36)
+        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2, output_padding=1) # -> (128, 36, 36)
         self.refine1 = DoubleConv(256, 128, p_dropout)
 
-        # self.up1 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (, 64, 74, 74)
+        self.up0 = nn.ConvTranspose2d(128, 64, 2, stride=2, output_padding=1) # -> (, 64, 75, 75)
+        self.refine0 = DoubleConv(128, 64, p_dropout)
 
+        self.head = nn.ConvTranspose2d(64, 3, 8, 3, 3)
+
+
+    def _get_flattened_shape(self, in_channels):
+        with torch.no_grad():
+            dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
+            d0 = self.layer0(dummy)
+            x = self.pool0(d0)
+
+            d1 = self.conv1(x)
+            x = self.pool1(d1)
+
+            d2 = self.conv2(x)
+            x = self.pool2(d2)
+
+            m = self.conv3(x)
+            _, C, H, W = m.shape
+
+            return C, H, W
+
+    def reparameterize(self, mu, logvar):
+        logvar = torch.clamp(logvar, min=-10, max=10)
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + std * eps
 
     def forward(self, x):
         d0 = self.layer0(x)
@@ -122,20 +151,22 @@ class VAEConvolutions(nn.Module):
         m = self.conv3(x)
 
         B, C, W, H = m.shape
+        # print(f"B, C, W, H {B, C, W, H}")
         m = m.view(-1, C*W*H)
         mu = self.fc_mu(m)
         logvar = self.fc_logvar(m)
 
-        z = mu + logvar # (, 64)
+        z = self.reparameterize(mu, logvar) # -> (,64)
         z = self.fc_up(z) # (, 512*9*9)
 
         z = z.view(-1, C, W, H)
 
         up2 = self.refine2(torch.cat([self.up2(z), d2], dim=1))
-        self.up1(up2)
-        # up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1))
-        # up0 = self.refine0(torch.cat([self.up0(z), d0], dim=1))
-        return z
+        up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1))
+        up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1))
+        out = self.head(up0) 
+
+        return out, mu, logvar
 
 
 def vae_loss(x, x_hat, mu, logvar):
@@ -262,8 +293,16 @@ def train_test_model(config):
     )
 
     print("Loading model")
-    input_dims = config.num_channels * config.image_size * config.image_size
-    model = VAELinear(input_dims)
+    if config.model_type == 'mlp':
+        input_dims = config.num_channels * config.image_size * config.image_size
+        model = VAELinear(input_dims)
+    if config.model_type == 'unet':
+        model = VAEUnet(
+            in_channels=3,
+            latent_dims=64,
+            p_dropout=config.p_dropout,
+            image_size=config.image_size
+        )
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
@@ -278,7 +317,8 @@ def train_test_model(config):
         with tqdm(train_dl, desc="Training") as pbar:
             for inputs, _ in pbar:
                 inputs = inputs.to(config.device)
-                inputs = torch.flatten(inputs, start_dim=1)
+                if config.model_type == 'mlp':
+                    inputs = torch.flatten(inputs, start_dim=1)
                 optimizer.zero_grad()
                 x_hat, mu, logvar = model(inputs)
                 loss = vae_loss(inputs, x_hat, mu, logvar)
@@ -299,7 +339,8 @@ def train_test_model(config):
                 val_total = 0.0
                 for inputs, _ in pbar:
                     inputs = inputs.to(config.device)
-                    inputs = torch.flatten(inputs, start_dim=1)
+                    if config.model_type == 'mlp':
+                        inputs = torch.flatten(inputs, start_dim=1)
                     x_hat, mu, logvar = model(inputs)
                     loss = vae_loss(inputs, x_hat, mu, logvar)
                     total_loss += loss.item() * inputs.size(0)
@@ -384,15 +425,15 @@ def main():
     config.device = device
     print(config.p_dropout)
 
-    m = VAEConvolutions(3, 64, p_dropout=config.p_dropout)
-    summary(
-        m, 
-        input_size=(1, 3, 224, 224),  # Add batch size here!
-        col_names=["input_size", "output_size", "num_params"],
-        verbose=2
-    )
+    # m = VAEUnet(3, 64, p_dropout=config.p_dropout)
+    # summary(
+    #     m, 
+    #     input_size=(1, 3, 224, 224),  # Add batch size here!
+    #     col_names=["input_size", "output_size", "num_params"],
+    #     verbose=2
+    # )
 
-    exit()
+    # exit()
 
     # mu1, mu2 = 1, 3
     # num_steps = 10
