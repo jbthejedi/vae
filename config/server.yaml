@@ -1,5 +1,4 @@
 name: vae-server
-device: cuda
 data_root: /workspace/vae/data/
 
 batch_size: 256

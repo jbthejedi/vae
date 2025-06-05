@@ -1,4 +1,5 @@
 import torch
+from torchinfo import summary
 import wandb
 import os
 import torchvision
@@ -14,7 +15,7 @@ from tqdm import tqdm
 
 from omegaconf import OmegaConf
 
-class VAE(nn.Module):
+class VAELinear(nn.Module):
     def __init__(
         self,
         input_dim=784,
@@ -50,6 +51,91 @@ class VAE(nn.Module):
     def decode(self, x):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
+    
+
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels, p_dropout):
+        super().__init__()
+        self.double_conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=p_dropout)
+        )
+
+    def forward(self, x):
+        return self.double_conv(x)
+
+
+class VAEConvolutions(nn.Module):
+    def __init__(self, in_channels, latent_dims, p_dropout):
+        super().__init__()
+        """
+        Assumptions for dimension calculations
+        H_in, W_in = 224
+        {H/W}_out = [({H/W}_in + 2p - d(k - 1) - 1) / s] + 1
+        """
+        self.layer0 = nn.Sequential( # -> (64, 74, 74)
+            nn.Conv2d(in_channels, 64, kernel_size=7, stride=3, padding=3),
+            nn.BatchNorm2d(num_features=64),
+            nn.ReLU(inplace=True),
+        )
+        self.pool0 = nn.MaxPool2d(2) # -> (64, 36, 36)
+
+        self.conv1 = DoubleConv(64, 128, p_dropout) # -> (128, 36, 36)
+        # MaxPool2d stride=2 by default
+        self.pool1 = nn.MaxPool2d(2) # -> (128, 18, 18)
+
+        self.conv2 = DoubleConv(128, 256, p_dropout) # -> (256, 18, 18)
+        self.pool2 = nn.MaxPool2d(2) # -> (256, 9, 9)
+
+        self.conv3 = DoubleConv(256, 512, p_dropout) # -> (512, 9, 9)
+
+        C, W, H = 512, 9, 9
+        self.fc_mu = nn.Linear(C*W*H, latent_dims) # -> (512*9*9, 64)
+        self.fc_logvar = nn.Linear(C*W*H, latent_dims) # -> (512*9*9, 64)
+
+        self.fc_up = nn.Linear(latent_dims, C*W*H) # -> (64, 512*9*9)
+
+        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (256, 18, 18)
+        self.refine2 = DoubleConv(512, 256, p_dropout)
+
+        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2) # -> (128, 36, 36)
+        self.refine1 = DoubleConv(256, 128, p_dropout)
+
+        # self.up1 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (, 64, 74, 74)
+
+
+    def forward(self, x):
+        d0 = self.layer0(x)
+        x = self.pool0(d0)
+
+        d1 = self.conv1(x)
+        x = self.pool1(d1)
+
+        d2 = self.conv2(x)
+        x = self.pool2(d2)
+
+        m = self.conv3(x)
+
+        B, C, W, H = m.shape
+        m = m.view(-1, C*W*H)
+        mu = self.fc_mu(m)
+        logvar = self.fc_logvar(m)
+
+        z = mu + logvar # (, 64)
+        z = self.fc_up(z) # (, 512*9*9)
+
+        z = z.view(-1, C, W, H)
+
+        up2 = self.refine2(torch.cat([self.up2(z), d2], dim=1))
+        self.up1(up2)
+        # up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1))
+        # up0 = self.refine0(torch.cat([self.up0(z), d0], dim=1))
+        return z
 
 
 def vae_loss(x, x_hat, mu, logvar):
@@ -177,7 +263,7 @@ def train_test_model(config):
 
     print("Loading model")
     input_dims = config.num_channels * config.image_size * config.image_size
-    model = VAE(input_dims)
+    model = VAELinear(input_dims)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
@@ -265,7 +351,7 @@ def load_and_test_model(config):
 
         # Load model
         input_dims = config.num_channels * config.image_size * config.image_size
-        model = VAE(input_dims).to(config.device)
+        model = VAELinear(input_dims).to(config.device)
         model.load_state_dict(torch.load(f"{artifact_dir}/best_model.pth", map_location="cpu"))
         model.eval()
         print("Model loaded successfully.")
@@ -295,6 +381,18 @@ def main():
     env = os.environ.get("ENV", "local")
     config = load_config(env)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    config.device = device
+    print(config.p_dropout)
+
+    m = VAEConvolutions(3, 64, p_dropout=config.p_dropout)
+    summary(
+        m, 
+        input_size=(1, 3, 224, 224),  # Add batch size here!
+        col_names=["input_size", "output_size", "num_params"],
+        verbose=2
+    )
+
+    exit()
 
     # mu1, mu2 = 1, 3
     # num_steps = 10
