@@ -1,19 +1,22 @@
-name: vae-server
-data_root: /workspace/vae/data/
+name: vae-unet-server
+data_root: /workspace/data/
+dataset_name: 'cifar10'
 
-batch_size: 256
-image_size: 128
-n_epochs: 20
+batch_size: 32
+image_size: 224
+n_epochs: 40
 num_channels: 3
 
 num_workers: 4
 
-artifact_name: jbarry-team/vae-cifar10/
+artifact_name: jbarry-team/vae-cifar10/vae-local_best_model:latest
+download_data: True
+wandb_mode: disabled
 
 local_visualization: False
 save_model: False
-download_data: True
-wandb_mode: online
+load_and_test_model: False
+train_model: True
 
-# model_type: 'mlp'
-model_type: 'unet'
+# model_type: mlp
+model_type: unet
