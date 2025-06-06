@@ -2,7 +2,7 @@ name: vae-unet-server
 data_root: /workspace/data
 dataset_name: 'cifar10'
 
-batch_size: 32
+batch_size: 64
 image_size: 224
 n_epochs: 40
 num_channels: 3
