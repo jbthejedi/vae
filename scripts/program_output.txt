@@ -1,0 +1,21 @@
+root@2527cd44b5a0:/workspace/vae# ENV=server poetry run python vae/vae_draft_1.py 
+env=server
+Configuration loaded
+Seed 1337 Device cuda
+wandb: Currently logged in as: justin-barry-e (jbarry-team) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.0
+wandb: Run data is saved locally in /workspace/vae/wandb/run-20250606_094921-e6mb3bl3
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run vae-unet-server
+wandb: ⭐️ View project at https://wandb.ai/jbarry-team/vae-cifar10
+wandb: 🚀 View run at https://wandb.ai/jbarry-team/vae-cifar10/runs/e6mb3bl3
+Dataset loaded
+Loading model
+Training Start
+Epoch 1/41
+Training: 100%|████████████████████████████████████████████████████| 704/704 [00:38<00:00, 18.22it/s, batch_loss=nan]
+Train Loss: nan
+Validation: 100%|████████████████████████████████████████████████████| 79/79 [00:02<00:00, 32.00it/s, batch_loss=nan]
+Val Loss: nan
+Epoch 2/41
+Training:   8%|████▏                                                | 56/704 [00:03<00:34, 18.94it/s, batch_loss=nan]Training:   8%|████▎                                                | 57/704 [00:03<00:38, 16.69it/s, batch_loss=nan]
