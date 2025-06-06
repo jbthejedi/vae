@@ -423,6 +423,7 @@ def load_and_test_model(config):
 def main():
     env = os.environ.get("ENV", "local")
     print(f"env={env}")
+    config.env = env
     config = load_config(env)
     print("Configuration loaded")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
