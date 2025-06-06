@@ -1932,4 +1932,4 @@ workspaces = ["wandb-workspaces"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "e8d8983304ac218090c3fe4724bfb21b16edbac20b37eb32f2cb2b6fb86115da"
+content-hash = "63b6804c68bd8af6bdc503112c49565590485277077eb19fb12d9b02513b753c"

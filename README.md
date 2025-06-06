@@ -1,6 +1,8 @@
 # vae
 Implementation of a variational autoencoder
 
+apt update && apt install vim -y && apt install screen -y
+
 poetry init
 poetry env use $(which python)
 poetry add torch torchvision matplotlib numpy
