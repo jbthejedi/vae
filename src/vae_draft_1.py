@@ -259,13 +259,10 @@ def train_test_model(config):
         mode=config.wandb_mode,
     )
     if config.dataset_name == 'cifar10':
-        if config.env == 'server':
-            print("Download server")
-            download = True
         dataset = datasets.CIFAR10(
             root=config.data_root,
-            # download=True if config.env == 'server' else false,
-            download=download,
+            download=(True if config.env == 'server' else False),
+            # download=download,
             transform=T.Compose([
                 T.Resize((config.image_size, config.image_size)),
                 T.ToTensor(),
@@ -274,7 +271,7 @@ def train_test_model(config):
     
     if config.dataset_name == 'minst':
         dataset = datasets.MNIST(
-            root='/Users/justinbarry/projects/vision-transformer/data',
+            root=config.data_root,
             download=False,
             transform=T.Compose([
                 T.ToTensor(),

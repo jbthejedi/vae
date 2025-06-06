@@ -1,5 +1,5 @@
 name: vae-unet-server
-data_root: /workspace/data/
+data_root: /workspace/data
 dataset_name: 'cifar10'
 
 batch_size: 32
@@ -10,7 +10,7 @@ num_channels: 3
 num_workers: 4
 
 artifact_name: jbarry-team/vae-cifar10/vae-local_best_model:latest
-download_data: True
+download_data: False
 wandb_mode: disabled
 
 local_visualization: False
