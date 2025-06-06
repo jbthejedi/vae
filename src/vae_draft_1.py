@@ -107,10 +107,11 @@ class VAEUnet(nn.Module):
         self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (256, 18, 18)
         self.refine2 = DoubleConv(512, 256, p_dropout)
 
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2, output_padding=1) # -> (128, 36, 36)
+        # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
+        self.up1 = nn.ConvTranspose2d(256, 128, 3, stride=2) # -> (128, 36, 36)
         self.refine1 = DoubleConv(256, 128, p_dropout)
 
-        self.up0 = nn.ConvTranspose2d(128, 64, 2, stride=2, output_padding=1) # -> (, 64, 75, 75)
+        self.up0 = nn.ConvTranspose2d(128, 64, 3, stride=2) # -> (, 64, 75, 75)
         self.refine0 = DoubleConv(128, 64, p_dropout)
 
         self.head = nn.ConvTranspose2d(64, 3, 8, 3, 3)
@@ -332,7 +333,7 @@ def train_test_model(config):
 
                 pbar.set_postfix(batch_loss=loss.item())
         train_epoch_loss = total_loss / train_total
-        tqdm.write(f"Train Loss: {train_epoch_loss}:.2f")
+        tqdm.write(f"Train Loss: {train_epoch_loss:.2f}")
 
         with tqdm(val_dl, desc="Validation") as pbar:
             model.eval()
@@ -349,7 +350,7 @@ def train_test_model(config):
                     val_total += inputs.size(0)
                     pbar.set_postfix(batch_loss=loss.item())
                 val_epoch_loss = total_loss / val_total
-        tqdm.write(f"Val Loss: {val_epoch_loss}:.4f")
+        tqdm.write(f"Val Loss: {val_epoch_loss:.2f}")
 
         if config.save_model and (val_epoch_loss < best_val_loss):
             best_val_loss = val_epoch_loss
