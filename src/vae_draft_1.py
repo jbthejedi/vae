@@ -332,7 +332,7 @@ def train_test_model(config):
 
                 pbar.set_postfix(batch_loss=loss.item())
         train_epoch_loss = total_loss / train_total
-        tqdm.write(f"Train Loss: {train_epoch_loss}")
+        tqdm.write(f"Train Loss: {train_epoch_loss}:.2f")
 
         with tqdm(val_dl, desc="Validation") as pbar:
             model.eval()
@@ -349,7 +349,7 @@ def train_test_model(config):
                     val_total += inputs.size(0)
                     pbar.set_postfix(batch_loss=loss.item())
                 val_epoch_loss = total_loss / val_total
-        tqdm.write(f"Val Loss: {val_epoch_loss}")
+        tqdm.write(f"Val Loss: {val_epoch_loss}:.4f")
 
         if config.save_model and (val_epoch_loss < best_val_loss):
             best_val_loss = val_epoch_loss

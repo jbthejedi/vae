@@ -9,9 +9,9 @@ num_channels: 3
 
 num_workers: 4
 
-artifact_name: jbarry-team/vae-cifar10/vae-local_best_model:latest
+artifact_name: jbarry-team/${project}/${name}-best-model:latest
 download_data: False
-wandb_mode: disabled
+wandb_mode: online
 
 local_visualization: False
 save_model: False
