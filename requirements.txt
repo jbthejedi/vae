@@ -1,4 +1,3 @@
-torchinfoannotated-types==0.7.0
 antlr4-python3-runtime==4.9.3
 certifi==2025.4.26
 charset-normalizer==3.4.2
