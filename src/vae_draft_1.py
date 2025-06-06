@@ -297,14 +297,14 @@ def train_test_model(config):
     print("Loading model")
     if config.model_type == 'mlp':
         input_dims = config.num_channels * config.image_size * config.image_size
-        model = VAELinear(input_dims)
+        model = VAELinear(input_dims).to(config.device)
     if config.model_type == 'unet':
         model = VAEUnet(
             in_channels=3,
             latent_dims=64,
             p_dropout=config.p_dropout,
             image_size=config.image_size
-        )
+        ).to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
