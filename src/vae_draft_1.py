@@ -423,9 +423,10 @@ def load_and_test_model(config):
 def main():
     env = os.environ.get("ENV", "local")
     config = load_config(env)
+    print("Configuration loaded")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     config.device = device
-    print(config.p_dropout)
+    print(f"Seed {config.seed} Device {config.device}")
 
     # m = VAEUnet(3, 64, p_dropout=config.p_dropout)
     # summary(
