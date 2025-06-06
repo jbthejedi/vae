@@ -1,5 +1,5 @@
 import torch
-from torchinfo import summary
+import sys
 import wandb
 import os
 import torchvision
@@ -12,6 +12,7 @@ import numpy as np
 from torchvision import datasets, transforms as T
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+from torchinfo import summary
 
 from omegaconf import OmegaConf
 
@@ -370,7 +371,7 @@ def train_test_model(config):
         interpolate_latents(config, model, dataset, num_steps=10)
 
 
-def load_config(env="local"):
+def load_config(env):
     base_config = OmegaConf.load("config/base.yaml")
 
     env_path = f"config/{env}.yaml"
@@ -418,13 +419,17 @@ def load_and_test_model(config):
         print(f"Error: {e}")
         exit(0)
 
-def main():
-    env = os.environ.get("ENV", "local")
-    config = load_config(env)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    config.device = device
-    print(config.p_dropout)
+def get_env_from_argv(default="local"):
+    for arg in sys.argv:
+        if arg.startswith("env="):
+            return arg.split("=")[1]
+    print(f"default {default}")
+    return default
 
+def main():
+    env = get_env_from_argv()
+    config = load_config(env)
+    config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # m = VAEUnet(3, 64, p_dropout=config.p_dropout)
     # summary(
     #     m, 

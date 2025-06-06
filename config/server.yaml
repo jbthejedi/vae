@@ -15,5 +15,5 @@ save_model: False
 download_data: True
 wandb_mode: online
 
-model_type: 'mlp'
+# model_type: 'mlp'
 model_type: 'unet'
