@@ -261,7 +261,7 @@ def train_test_model(config):
     if config.dataset_name == 'cifar10':
         dataset = datasets.CIFAR10(
             root=config.data_root,
-            download=False,
+            download=True if config.env == 'server' else False,
             transform=T.Compose([
                 T.Resize((config.image_size, config.image_size)),
                 T.ToTensor(),
@@ -371,7 +371,7 @@ def train_test_model(config):
         interpolate_latents(config, model, dataset, num_steps=10)
 
 
-def load_config(env):
+def load_config(env="local"):
     base_config = OmegaConf.load("config/base.yaml")
 
     env_path = f"config/{env}.yaml"
@@ -419,17 +419,14 @@ def load_and_test_model(config):
         print(f"Error: {e}")
         exit(0)
 
-def get_env_from_argv(default="local"):
-    for arg in sys.argv:
-        if arg.startswith("env="):
-            return arg.split("=")[1]
-    print(f"default {default}")
-    return default
 
 def main():
-    env = get_env_from_argv()
+    env = os.environ.get("ENV", "local")
     config = load_config(env)
-    config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    config.device = device
+    print(config.p_dropout)
+
     # m = VAEUnet(3, 64, p_dropout=config.p_dropout)
     # summary(
     #     m, 
