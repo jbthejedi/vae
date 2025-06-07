@@ -1,54 +1,52 @@
 #!/bin/bash
 
-source ~/.bashrc
+set -e  # exit on error
 
-set -e  # Exit on error
-
-echo "==> Updating system package list"
+echo "==> updating system package list"
 apt update
 
-echo "==> Installing vim if not already installed"
+echo "==> installing vim if not already installed"
 if ! command -v vim &> /dev/null; then
     apt install -y vim
 else
     echo "vim already installed"
 fi
 
-echo "==> Installing screen if not already installed"
+echo "==> installing screen if not already installed"
 if ! command -v screen &> /dev/null; then
     apt install -y screen
 else
     echo "screen already installed"
 fi
 
-echo "==> Installing wget if not already installed"
+echo "==> installing wget if not already installed"
 if ! command -v wget &> /dev/null; then
     apt install -y wget
 else
     echo "wget already installed"
 fi
 
-echo "==> Authenticating GitHub CLI (manual login required if not done already)"
-gh auth status || gh auth login
-
-echo "==> Cloning your repo"
-read -p "Enter GitHub repo name (e.g. "vae"): " REPO
-REPO_NAME=$(basename "$REPO")
-if [ -d "$REPO_NAME" ]; then
-    echo "Repo '$REPO_NAME' already exists. Skipping clone."
-    cd "$REPO_NAME"
+echo "==> Installing GitHub CLI if not already installed"
+if ! command -v gh &> /dev/null; then
+    mkdir -p -m 755 /etc/apt/keyrings
+    GH_KEY_TMP=$(mktemp)
+    wget -nv -O "$GH_KEY_TMP" https://cli.github.com/packages/githubcli-archive-keyring.gpg
+    cat "$GH_KEY_TMP" | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
+         tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    apt update && apt install -y gh
 else
-    gh repo clone "$REPO"
-    cd "$REPO_NAME"
+    echo "gh (GitHub CLI) already installed"
 fi
 
+echo "==> authenticating github cli (manual login required if not done already)"
+gh auth status || gh auth login
+
 echo 'export PATH="/workspace/poetry/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+echo "==> Placing /workspace/poetry/bin on path"
 
-poetry env use python3.10
-poetry install
+# Ensure poetry venvs are created in Project directores
+poetry config virtualenvs.in-project true
 
-echo "==> Logging in to Weights & Biases (manual login required if not done)"
-wandb status || poetry run wandb login
-
-echo "✅ Restart configuration setup complete."
+echo "✅ restart configuration setup complete."

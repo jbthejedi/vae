@@ -171,8 +171,9 @@ class VAEUnet(nn.Module):
         return out, mu, logvar
 
 
-def vae_loss(x, x_hat, mu, logvar):
-    recon_loss = F.binary_cross_entropy_with_logits(x_hat, x, reduction="sum")
+def vae_loss(x, x_hat, mu, logvar, f):
+    # x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
+    recon_loss = f(x_hat, x, reduction="sum")
     kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return recon_loss + kl_div
 
@@ -324,7 +325,10 @@ def train_test_model(config):
                     inputs = torch.flatten(inputs, start_dim=1)
                 optimizer.zero_grad()
                 x_hat, mu, logvar = model(inputs)
-                loss = vae_loss(inputs, x_hat, mu, logvar)
+                if config.model_type == 'vae':
+                    loss = vae_loss(inputs, x_hat, mu, logvar, F.binary_cross_entropy_with_logits)
+                if config.model_type == 'unet':
+                    loss = vae_loss(inputs, x_hat, mu, logvar, F.mse_loss)
                 loss.backward()
                 optimizer.step()
 
