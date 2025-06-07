@@ -187,11 +187,17 @@ class VAEUnet(nn.Module):
         return out, mu, logvar
 
 
-def vae_loss(x, x_hat, mu, logvar, f):
-    # x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
-    recon_loss = f(x_hat, x, reduction="sum")
+def vae_loss_bce(x, x_hat, mu, logvar):
+    x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
+    recon_loss = F.binary_cross_entropy_with_logits(x_hat, x, reduction="sum")
     kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    kl_weight = 1e-3  # increase over time with beta-VAE strategy
+    kl_weight = 1e-3
+    return recon_loss + kl_weight * kl_div
+
+def vae_loss_mse(x, x_hat, mu, logvar):
+    recon_loss = F.mse_loss(x_hat, x, reduction="sum")
+    kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    kl_weight = 1e-3 # increase over time with beta-VAE strategy
     return recon_loss + kl_weight * kl_div
 
 
@@ -343,9 +349,11 @@ def train_test_model(config):
                 optimizer.zero_grad()
                 x_hat, mu, logvar = model(inputs)
                 if config.model_type == 'vae':
-                    loss = vae_loss(inputs, x_hat, mu, logvar, F.binary_cross_entropy_with_logits)
+                    loss = vae_loss_bce(inputs, x_hat, mu, logvar)
                 if config.model_type == 'unet':
-                    loss = vae_loss(inputs, x_hat, mu, logvar, F.mse_loss)
+                    recon = torch.sigmoid(x_hat)
+                    loss = vae_loss_mse(inputs, recon, mu, logvar)
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 loss.backward()
                 optimizer.step()
 
@@ -368,14 +376,16 @@ def train_test_model(config):
                     x_hat, mu, logvar = model(inputs)
 
                     if config.model_type == 'vae':
-                        loss = vae_loss(inputs, x_hat, mu, logvar, F.binary_cross_entropy_with_logits)
+                        loss = vae_loss_bce(inputs, x_hat, mu, logvar)
                     if config.model_type == 'unet':
-                        loss = vae_loss(inputs, torch.sigmoid(x_hat), mu, logvar, F.mse_loss)
+                        recon = torch.sigmoid(x_hat)
+                        loss = vae_loss_mse(inputs, recon, mu, logvar)
 
                     total_loss += loss.item() * inputs.size(0)
                     val_total += inputs.size(0)
                     pbar.set_postfix(batch_loss=loss.item())
                 val_epoch_loss = total_loss / val_total
+
         tqdm.write(f"Val Loss: {val_epoch_loss:.2f}")
 
         if config.save_model and (val_epoch_loss < best_val_loss):

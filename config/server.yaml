@@ -20,4 +20,4 @@ train_model: True
 
 # model_type: mlp
 model_type: unet
-summary: True
+summary: False
