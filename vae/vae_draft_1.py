@@ -349,7 +349,12 @@ def train_test_model(config):
                     if config.model_type == 'mlp':
                         inputs = torch.flatten(inputs, start_dim=1)
                     x_hat, mu, logvar = model(inputs)
-                    loss = vae_loss(inputs, x_hat, mu, logvar)
+
+                    if config.model_type == 'vae':
+                        loss = vae_loss(inputs, x_hat, mu, logvar, F.binary_cross_entropy_with_logits)
+                    if config.model_type == 'unet':
+                        loss = vae_loss(inputs, x_hat, mu, logvar, F.mse_loss)
+
                     total_loss += loss.item() * inputs.size(0)
                     val_total += inputs.size(0)
                     pbar.set_postfix(batch_loss=loss.item())
