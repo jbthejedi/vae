@@ -81,46 +81,55 @@ class VAEUnet(nn.Module):
         ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
         """
         self.image_size = image_size
-        self.layer0 = nn.Sequential( # -> (64, 75, 75)
-            nn.Conv2d(in_channels, 64, kernel_size=7, stride=3, padding=3),
-            nn.BatchNorm2d(num_features=64),
-            nn.ReLU(inplace=True),
-        )
-        self.pool0 = nn.MaxPool2d(2) # -> (64, 37, 37)
-
-        self.conv1 = DoubleConv(64, 128, p_dropout) # -> (128, 37, 37)
+        # self.layer0 = nn.Sequential( 
+        #     nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
+        #     nn.BatchNorm2d(num_features=64),
+        #     nn.ReLU(inplace=True),
+        # )                                                           # -> (64, 112, 112)
         # MaxPool2d stride=2 by default
-        self.pool1 = nn.MaxPool2d(2) # -> (128, 18, 18)
+        self.conv0 = DoubleConv(3, 64, p_dropout)                 # -> (64, 224, 224)
+        self.pool0 = nn.MaxPool2d(2)                                # -> (64, 112, 112)
 
-        self.conv2 = DoubleConv(128, 256, p_dropout) # -> (256, 18, 18)
-        self.pool2 = nn.MaxPool2d(2) # -> (256, 9, 9)
+        self.conv1 = DoubleConv(64, 128, p_dropout)                 # -> (128, 112, 112)
+        self.pool1 = nn.MaxPool2d(2)                                # -> (128, 56, 56) 
 
-        self.conv3 = DoubleConv(256, 512, p_dropout) # -> (512, 9, 9)
+        self.conv2 = DoubleConv(128, 256, p_dropout)                # -> (256, 56, 56)
+        self.pool2 = nn.MaxPool2d(2)                                # -> (256, 28, 28)
+
+        self.conv3 = DoubleConv(256, 512, p_dropout)                # -> (512, 28, 28)
+        self.pool3 = nn.MaxPool2d(2)                                # -> (512, 14, 14)
+
+        self.middle = DoubleConv(512, 1024, p_dropout)              # -> (1024, 14, 14)
 
         C, H, W = self._get_flattened_shape(in_channels)
+        print(f"flattened shape (C, H, W): ({C, H, W})")
         self.flattened_dim = C * H * W
-        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims) # -> (512*9*9, 64)
-        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (512*9*9, 64)
+        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims)     # -> (1024*14*14, 64), 1024*14*14 = 50176
+        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (1024*14*14, 64)
 
-        self.fc_up = nn.Linear(latent_dims, C*W*H) # -> (64, 512*9*9)
+        self.fc_up = nn.Linear(latent_dims, C*W*H)                  # -> (64, 1024*14*14)
 
-        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2) # -> (256, 18, 18)
+        # # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
+        self.up3 = nn.ConvTranspose2d(1024, 512, 2, stride=2)       # -> (
+        self.refine3 = DoubleConv(1024, 512, p_dropout)
+
+        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2)        # -> (
         self.refine2 = DoubleConv(512, 256, p_dropout)
 
-        # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        self.up1 = nn.ConvTranspose2d(256, 128, 3, stride=2) # -> (128, 36, 36)
+        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2)        # -> (
         self.refine1 = DoubleConv(256, 128, p_dropout)
 
-        self.up0 = nn.ConvTranspose2d(128, 64, 3, stride=2) # -> (, 64, 75, 75)
-        self.refine0 = DoubleConv(128, 64, p_dropout)
+        self.up0 = nn.ConvTranspose2d(128, 64, 2, stride=2)         # -> (
+        self.refine0 = DoubleConv(128, 64, p_dropout)               # -> (64, 224, 224)
 
-        self.head = nn.ConvTranspose2d(64, 3, 8, 3, 3)
+        self.head = nn.Conv2d(64, 3, 1, padding=0, stride=1)        # -> (3, 124, 124)
 
 
     def _get_flattened_shape(self, in_channels):
         with torch.no_grad():
             dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
-            d0 = self.layer0(dummy)
+            # d0 = self.layer0(dummy)
+            d0 = self.conv0(dummy)
             x = self.pool0(d0)
 
             d1 = self.conv1(x)
@@ -129,7 +138,10 @@ class VAEUnet(nn.Module):
             d2 = self.conv2(x)
             x = self.pool2(d2)
 
-            m = self.conv3(x)
+            d3 = self.conv3(x)
+            x = self.pool3(d3)
+
+            m = self.middle(x)
             _, C, H, W = m.shape
 
             return C, H, W
@@ -141,31 +153,35 @@ class VAEUnet(nn.Module):
         return mu + std * eps
 
     def forward(self, x):
-        d0 = self.layer0(x)
-        x = self.pool0(d0)
+        # d0 = self.layer0(x)                     # -> (64, 112, 112)
+        d0 = self.conv0(x)                     # -> (64, 112, 112)
+        x = self.pool0(d0)                      # -> (64, 56, 56)
 
         d1 = self.conv1(x)
         x = self.pool1(d1)
 
-        d2 = self.conv2(x)
-        x = self.pool2(d2)
+        d2 = self.conv2(x)                      # -> (256, 28, 28)
+        x = self.pool2(d2)                      # -> (256, 14, 14)
 
-        m = self.conv3(x)
+        d3 = self.conv3(x)                      # -> (512, 14, 14)
+        x = self.pool3(d3)                      # -> (512, 7, 7)
+
+        m = self.middle(x)                      # -> (1024, 14, 14)
 
         B, C, W, H = m.shape
-        # print(f"B, C, W, H {B, C, W, H}")
-        m = m.view(-1, C*W*H)
+        m = m.view(-1, C*W*H)                   # -> (1, d), d=14*14*1024=50176
         mu = self.fc_mu(m)
         logvar = self.fc_logvar(m)
 
-        z = self.reparameterize(mu, logvar) # -> (,64)
-        z = self.fc_up(z) # (, 512*9*9)
+        z = self.reparameterize(mu, logvar)     # -> (,64)
+        z = self.fc_up(z)                       # -> (, 1024*14*14)
 
-        z = z.view(-1, C, W, H)
+        z = z.view(-1, C, W, H)                 # -> (, 1024, 14, 14)
 
-        up2 = self.refine2(torch.cat([self.up2(z), d2], dim=1))
-        up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1))
-        up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1))
+        up3 = self.refine3(torch.cat([self.up3(z), d3], dim=1)) # -> (512, 28, 28)
+        up2 = self.refine2(torch.cat([self.up2(up3), d2], dim=1)) # -> (256, 56, 56)
+        up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1)) # -> (128, 112, 112)
+        up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1)) # -> (64, 224, 224)
         out = self.head(up0) 
 
         return out, mu, logvar
@@ -440,20 +456,15 @@ def main():
     config.device, config.env = device, env
     print(f"Seed {config.seed} Device {config.device}")
 
-    # m = VAEUnet(3, 64, p_dropout=config.p_dropout)
-    # summary(
-    #     m, 
-    #     input_size=(1, 3, 224, 224),  # Add batch size here!
-    #     col_names=["input_size", "output_size", "num_params"],
-    #     verbose=2
-    # )
-
-    # exit()
-
-    # mu1, mu2 = 1, 3
-    # num_steps = 10
-    # for alpha in torch.linspace(0, 1, steps=num_steps):
-    #     z = (1 - alpha) * mu1 + alpha * mu2
+    if config.summary:
+        m = VAEUnet(config.num_channels, 64, config.p_dropout, config.image_size)
+        summary(
+            m, 
+            input_size=(1, config.num_channels, config.image_size, config.image_size),  # Add batch size here!
+            col_names=["input_size", "output_size", "num_params"],
+            # verbose=2
+        )
+        exit()
 
     if config.load_and_test_model:
         load_and_test_model(config)

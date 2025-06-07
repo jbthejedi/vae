@@ -17,6 +17,7 @@ local_visualization: False
 save_model: False
 load_and_test_model: False
 train_model: True
+summary: False
 
 # model_type: mlp
 model_type: unet
