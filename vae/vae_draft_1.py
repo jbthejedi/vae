@@ -174,15 +174,15 @@ class VAEUnet(nn.Module):
         logvar = self.fc_logvar(m)
 
         z = self.reparameterize(mu, logvar)     # -> (,64)
-        z = self.fc_up(z)                       # -> (, 1024*14*14)
+        z = torch.tanh(self.fc_up(z))                       # -> (, 1024*14*14)
 
         z = z.view(-1, C, W, H)                 # -> (, 1024, 14, 14)
 
-        up3 = self.refine3(torch.cat([self.up3(z), d3], dim=1)) # -> (512, 28, 28)
+        up3 = self.refine3(torch.cat([self.up3(z), d3], dim=1))   # -> (512, 28, 28)
         up2 = self.refine2(torch.cat([self.up2(up3), d2], dim=1)) # -> (256, 56, 56)
         up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1)) # -> (128, 112, 112)
         up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1)) # -> (64, 224, 224)
-        out = self.head(up0) 
+        out = self.head(up0)
 
         return out, mu, logvar
 
@@ -191,7 +191,8 @@ def vae_loss(x, x_hat, mu, logvar, f):
     # x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
     recon_loss = f(x_hat, x, reduction="sum")
     kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return recon_loss + kl_div
+    kl_weight = 1e-3  # increase over time with beta-VAE strategy
+    return recon_loss + kl_weight * kl_div
 
 
 def show_reconstructions(config, model, data_loader, num_images=8):

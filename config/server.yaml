@@ -4,7 +4,7 @@ dataset_name: 'cifar10'
 
 batch_size: 64
 image_size: 224
-n_epochs: 40
+n_epochs: 15
 num_channels: 3
 
 num_workers: 4
