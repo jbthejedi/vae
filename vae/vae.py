@@ -18,48 +18,14 @@ from omegaconf import OmegaConf
 
 
 class VAEMlp(nn.Module):
-    def __init__(self, input_dims, hidden_dims, latent_dims):
-        super().__init__()
-        self.hidden1 = nn.Linear(input_dims, hidden_dims)
-        self.mu = nn.Linear(hidden_dims, latent_dims)
-        self.logvar = nn.Linear(hidden_dims, latent_dims)
-        self.fc1 = nn.Linear(latent_dims, hidden_dims)
-        self.fc2 = nn.Linear(hidden_dims, input_dims)
-    
-
-    def forward(self, x):
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        x_hat = self.decode(z)
-        return x_hat, mu, logvar
-    
-
-    def encode(self, x):
-        x = self.hidden1(x)
-        mu, logvar = self.mu(x), self.logvar(x)
-        return mu, logvar
-
-
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps 
-
-
-    def decode(self, z):
-        x = torch.relu(self.fc1(z))
-        return self.fc2(x)
-
+    pass
 
 class VAEConv(nn.Module):
-    def __init__(self):
-        super().__init__()
+    pass
 
 
 def vae_loss(x, x_hat, mu : torch.Tensor, logvar : torch.Tensor, loss):
-    recon_loss = loss(x_hat, x, reduction='sum')
-    kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return (recon_loss + kl_div) / x.size(0)
+    pass
 
 
 def show_reconstructions(config, model, data_loader, num_images=8):
@@ -163,89 +129,6 @@ def get_train_val_dl(dataset, config):
     return train_dl, val_dl
 
 
-def train_test_model(config):
-    if config.dataset_name == 'mnist':
-        dataset = datasets.MNIST(
-            root=config.data_root,
-            download=False,
-            transform=T.Compose([
-                T.Resize((config.image_size, config.image_size)),
-                T.ToTensor(),
-            ])
-        )
-    else:
-        raise Exception("No dataset specified")
-        exit()
-
-    train_dl, val_dl = get_train_val_dl(dataset, config)
-    
-    if config.model_type == 'mlp':
-        model = VAEMlp(input_dims=784, hidden_dims=256, latent_dims=config.latent_dims)
-    else:
-        raise Exception("No model specified")
-        exit()
-    model = model.to(config.device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
-
-    for epoch in range(1, config.n_epochs + 1):
-        with tqdm(train_dl, desc="Training") as pbar:
-            model.train()
-            tqdm.write(f"Epoch {epoch}/{config.n_epochs+1}")
-            total_train_loss = 0.0
-            for inputs, _ in pbar:
-                inputs = inputs.to(config.device)
-                if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
-
-                recons, mu, logvar = model(inputs)
-                optimizer.zero_grad()
-
-                f = F.binary_cross_entropy_with_logits if config.dataset_name == 'mnist' else F.mse_loss
-                loss : torch.Tensor = vae_loss(inputs, recons, mu, logvar, f)
-
-                loss.backward()
-                optimizer.step()
-
-                total_train_loss += loss.item()
-                pbar.set_postfix(loss=f"{loss.item():.4f}")
-            train_epoch_loss = total_train_loss / len(train_dl)
-        tqdm.write(f"Train Loss {train_epoch_loss:.6f}")
-
-        with tqdm(val_dl, desc="Validation") as pbar:
-            model.eval()
-            with torch.no_grad():
-                total_val_loss = 0.0
-                for inputs, _ in pbar:
-                    inputs = inputs.to(config.device)
-                    if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
-                    recons, mu, logvar = model(inputs)
-
-                    f = F.binary_cross_entropy_with_logits if config.dataset_name == 'mnist' else F.mse_loss
-                    loss : torch.Tensor = vae_loss(inputs, recons, mu, logvar, f)
-                    total_val_loss += loss.item()
-
-                    pbar.set_postfix(loss=f"{loss.item():.4f}")
-                val_epoch_loss = total_val_loss / len(val_dl)
-            tqdm.write(f"Val Loss {val_epoch_loss:.6f}")
-    if config.local_visualization:
-        show_reconstructions(config, model, val_dl, num_images=8)
-        show_samples(config, model, latent_dim=config.latent_dims)
-        
-
-
-def load_config(env="local"):
-    base_config = OmegaConf.load("config/base.yaml")
-
-    env_path = f"config/{env}.yaml"
-    if os.path.exists(env_path):
-        env_config = OmegaConf.load(env_path)
-        # Merges env_config into base_config (env overrides base)
-        config = OmegaConf.merge(base_config, env_config)
-    else:
-        config = base_config
-
-    return config
-
-
 def load_and_test_model(config):
     api = wandb.Api()
     artifact_name = config.artifact_name
@@ -287,6 +170,10 @@ def load_and_test_model(config):
         exit(0)
 
 
+def train_test_model(config):
+    pass
+
+
 def main():
     env = os.environ.get("ENV", "local")
     print(f"env={env}")
@@ -315,6 +202,20 @@ def main():
         load_and_test_model(config)
     elif config.train_model:
         train_test_model(config)
+
+
+def load_config(env="local"):
+    base_config = OmegaConf.load("config/base.yaml")
+
+    env_path = f"config/{env}.yaml"
+    if os.path.exists(env_path):
+        env_config = OmegaConf.load(env_path)
+        # Merges env_config into base_config (env overrides base)
+        config = OmegaConf.merge(base_config, env_config)
+    else:
+        config = base_config
+
+    return config
 
 
 if __name__ == '__main__':
