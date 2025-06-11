@@ -468,7 +468,7 @@ class VAEConv(nn.Module):
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
-        z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
+        # z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
         x_hat = self.decode(z)
         return x_hat, mu, logvar
 
@@ -501,6 +501,7 @@ class VAEConv(nn.Module):
     
 
     def decode(self, z):
+        z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
         z = z.view(-1, self.C, self.W, self.H)          # -> (, 256, 28, 28)
         x = torch.relu(self.bn2(self.up2(z)))       # -> (128, 56, 56)
         x = torch.relu(self.bn1(self.up1(x)))
@@ -579,8 +580,12 @@ def interpolate_latents(config, model, dataset, num_steps=10):
         img1, _ = dataset[indices[0]]
         img2, _ = dataset[indices[1]]
 
-        x1 = img1.view(1, -1).to(config.device)
-        x2 = img2.view(1, -1).to(config.device)
+        if config.model_type == "mlp":
+            x1 = img1.view(1, -1).to(config.device)
+            x2 = img2.view(1, -1).to(config.device)
+        else:
+            x1 = img1.unsqueeze(0).to(config.device) # (1, 3, 224, 224)
+            x2 = img2.unsqueeze(0).to(config.device) # (1, 3, 224, 224)
 
         # Encode both to get means
         mu1, _ = model.encode(x1)
@@ -822,7 +827,7 @@ def load_and_test_model(config):
         _, val_dl = get_train_val_dl(dataset, config)
         print("Dataloaders created")
 
-        show_reconstructions(config, model, val_dl)
+        # show_reconstructions(config, model, val_dl)
         interpolate_latents(config, model, dataset, num_steps=10)
     except wandb.CommError as e:
         print(f"Artifact not found: {artifact_name}")

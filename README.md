@@ -19,3 +19,7 @@ poetry config --list
 poetry install
 
 poetry env use $(which python3.10)
+
+
+### Squash git commits HOWTO
+git rev-list --max-parents=0 HEAD
