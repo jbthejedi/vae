@@ -17,519 +17,49 @@ from torchinfo import summary
 from omegaconf import OmegaConf
 
 
-class VAELinear(nn.Module):
-    def __init__(
-        self,
-        input_dim=784,
-        hidden_dim=256,
-        latent_dim=16,
-    ):
+class VAEMlp(nn.Module):
+    def __init__(self, input_dims, hidden_dims, latent_dims):
         super().__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
-        self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
-
-        self.fc2 = nn.Linear(latent_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, input_dim)
+        self.hidden1 = nn.Linear(input_dims, hidden_dims)
+        self.mu = nn.Linear(hidden_dims, latent_dims)
+        self.logvar = nn.Linear(hidden_dims, latent_dims)
+        self.fc1 = nn.Linear(latent_dims, hidden_dims)
+        self.fc2 = nn.Linear(hidden_dims, input_dims)
+    
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         x_hat = self.decode(z)
         return x_hat, mu, logvar
-
-    def reparameterize(self, mu, logvar):
-        # logvar = torch.clamp(logvar, min=-10, max=10)
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
+    
 
     def encode(self, x):
-        x = F.relu(self.fc1(x))
-        mu = self.fc_mu(x)
-        logvar = self.fc_logvar(x)
+        x = self.hidden1(x)
+        mu, logvar = self.mu(x), self.logvar(x)
         return mu, logvar
-    
-    def decode(self, x):
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
-    
-
-class DoubleConv(nn.Module):
-    def __init__(self, in_channels, out_channels, p_dropout):
-        super().__init__()
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(num_features=out_channels),
-            nn.GroupNorm(num_groups=8, num_channels=out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(num_features=out_channels),
-            nn.GroupNorm(num_groups=8, num_channels=out_channels),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=p_dropout)
-        )
-
-    def forward(self, x):
-        return self.double_conv(x)
-
-
-class VAEUnet256(nn.Module):
-    def __init__(self, in_channels, latent_dims, p_dropout, image_size):
-        super().__init__()
-        """
-        Assumptions for dimension calculations
-        H_in, W_in = 224
-        Conv:          {h/w}_out = [({h/w}_in + 2p - d(k - 1) - 1) / s] + 1
-        ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        """
-        self.image_size = image_size
-
-        self.conv0 = DoubleConv(3, 64, p_dropout)                   # -> (64, 224, 224)
-        self.pool0 = nn.MaxPool2d(2)                                # -> (64, 112, 112)
-
-        self.conv1 = DoubleConv(64, 128, p_dropout)                 # -> (128, 112, 112)
-        self.pool1 = nn.MaxPool2d(2)                                # -> (128, 56, 56) 
-
-        self.conv2 = DoubleConv(128, 256, p_dropout)                # -> (256, 56, 56)
-        self.pool2 = nn.MaxPool2d(2)                                # -> (256, 28, 28)
-
-        self.middle = DoubleConv(256, 256, p_dropout)               # -> (256, 14, 14)
-
-        C, H, W = self._get_flattened_shape(in_channels)
-        print(f"flattened shape (C, H, W): ({C, H, W})")
-        self.flattened_dim = C * H * W
-        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims)     # -> (U, 64), U = 256*14*14 = 50176
-        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (U, 64)
-        nn.init.xavier_uniform_(self.fc_mu.weight, gain=0.1)
-        nn.init.xavier_uniform_(self.fc_logvar.weight, gain=0.1)
-
-        self.fc_up = nn.Linear(latent_dims, C*W*H)                  # -> (64, U)
-                                                            # Reshape -> (256, 14, 14)
-        # # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)          # -> (256, 28, 28)
-        self.refine2 = DoubleConv(128 + 256, 128, p_dropout)          # -> (128, 56, 56)
-
-        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)           # -> (64, 112, 112)
-        self.refine1 = DoubleConv(64 + 128, 64, p_dropout)            # -> (64, 112, 112)
-
-        self.up0 = nn.ConvTranspose2d(64, 64, 2, stride=2)           # -> (3, 224, 224)
-        self.refine0 = DoubleConv(64 + 64, 64, p_dropout)            # -> (64, 224, 224)
-
-        self.head = nn.Conv2d(64, 3, 1, padding=0, stride=1)        # -> (3, 124, 124)
-
-
-    def _get_flattened_shape(self, in_channels):
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
-            # d0 = self.layer0(dummy)
-            d0 = self.conv0(dummy)
-            x = self.pool0(d0)
-
-            d1 = self.conv1(x)
-            x = self.pool1(d1)
-
-            d2 = self.conv2(x)
-            x = self.pool2(d2)
-
-            m = self.middle(x)
-            _, C, H, W = m.shape
-
-            return C, H, W
-
-
-    def forward(self, x):
-        d0 = self.conv0(x)                      # -> (64, 224, 224)
-        x = self.pool0(d0)                      # -> (64, 112, 112)
-
-        d1 = self.conv1(x)                      # -> (128, 112, 112)
-        x = self.pool1(d1)                      # -> (128, 56, 56)
-
-        d2 = self.conv2(x)                      # -> (256, 56, 56)
-        x = self.pool2(d2)                      # -> (256, 28, 28)
-
-        m = self.middle(x)                              # -> (256, 28, 28)
-
-        B, C, W, H = m.shape
-        m = m.view(-1, C*W*H)                           # -> (1, U), U=256*28*28
-        mu = self.fc_mu(m)
-        logvar = self.fc_logvar(m)
-
-        z = self.reparameterize(mu, logvar)             # -> (,64)
-        z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
-        z = z.view(-1, C, W, H)                         # -> (, 256, 28, 28)
-
-        up2 = self.up2(z)                               # -> (128, 56, 56)
-        x = self.refine2(torch.cat([up2, d2], dim=1)) # -> (128, 56, 56)
-
-        up1 = self.up1(x)                               # -> (64, 112, 112)
-        cat = torch.cat([up1, d1], dim=1)               # -> (64 + 128, 112, 112)
-        x = self.refine1(cat)                           # -> (64, 112, 112)
-
-        up0 = self.up0(x)                               # -> (64, 224, 224)
-        cat = torch.cat([up0, d0], dim=1)               # -> (64 + 64, 224, 224)
-        x = self.refine0(cat)                           # -> (64, 112, 112)
-
-        out = self.head(x)
-
-        return out, mu, logvar
 
 
     def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
+        std = torch.exp(.5 * logvar)
         eps = torch.randn_like(std)
-        return mu + std * eps
+        return mu + std * eps 
 
 
-class VAEUnet1024(nn.Module):
-    def __init__(self, in_channels, latent_dims, p_dropout, image_size):
-        super().__init__()
-        """
-        Assumptions for dimension calculations
-        H_in, W_in = 224
-        Conv:          {h/w}_out = [({h/w}_in + 2p - d(k - 1) - 1) / s] + 1
-        ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        """
-        self.image_size = image_size
-
-        self.conv0 = DoubleConv(3, 64, p_dropout)                 # -> (64, 224, 224)
-        self.pool0 = nn.MaxPool2d(2)                                # -> (64, 112, 112)
-
-        self.conv1 = DoubleConv(64, 128, p_dropout)                 # -> (128, 112, 112)
-        self.pool1 = nn.MaxPool2d(2)                                # -> (128, 56, 56) 
-
-        self.conv2 = DoubleConv(128, 256, p_dropout)                # -> (256, 56, 56)
-        self.pool2 = nn.MaxPool2d(2)                                # -> (256, 28, 28)
-
-        self.conv3 = DoubleConv(256, 512, p_dropout)                # -> (512, 28, 28)
-        self.pool3 = nn.MaxPool2d(2)                                # -> (512, 14, 14)
-
-        self.middle = DoubleConv(512, 1024, p_dropout)              # -> (1024, 14, 14)
-
-        C, H, W = self._get_flattened_shape(in_channels)
-        print(f"flattened shape (C, H, W): ({C, H, W})")
-        self.flattened_dim = C * H * W
-        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims)     # -> (1024*14*14, 64), 1024*14*14 = 50176
-        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (1024*14*14, 64)
-
-        self.fc_up = nn.Linear(latent_dims, C*W*H)                  # -> (64, 1024*14*14)
-
-        # # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        self.up3 = nn.ConvTranspose2d(1024, 512, 2, stride=2)       # -> (
-        self.refine3 = DoubleConv(1024, 512, p_dropout)
-
-        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2)        # -> (
-        self.refine2 = DoubleConv(512, 256, p_dropout)
-
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2)        # -> (
-        self.refine1 = DoubleConv(256, 128, p_dropout)
-
-        self.up0 = nn.ConvTranspose2d(128, 64, 2, stride=2)         # -> (
-        self.refine0 = DoubleConv(128, 64, p_dropout)               # -> (64, 224, 224)
-
-        self.head = nn.Conv2d(64, 3, 1, padding=0, stride=1)        # -> (3, 124, 124)
-
-
-    def _get_flattened_shape(self, in_channels):
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
-            # d0 = self.layer0(dummy)
-            d0 = self.conv0(dummy)
-            x = self.pool0(d0)
-
-            d1 = self.conv1(x)
-            x = self.pool1(d1)
-
-            d2 = self.conv2(x)
-            x = self.pool2(d2)
-
-            d3 = self.conv3(x)
-            x = self.pool3(d3)
-
-            m = self.middle(x)
-            _, C, H, W = m.shape
-
-            return C, H, W
-
-    def reparameterize(self, mu, logvar):
-        logvar = torch.clamp(logvar, min=-10, max=10)
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
-
-    def forward(self, x):
-        # d0 = self.layer0(x)                     # -> (64, 112, 112)
-        d0 = self.conv0(x)                     # -> (64, 112, 112)
-        x = self.pool0(d0)                      # -> (64, 56, 56)
-
-        d1 = self.conv1(x)
-        x = self.pool1(d1)
-
-        d2 = self.conv2(x)                      # -> (256, 28, 28)
-        x = self.pool2(d2)                      # -> (256, 14, 14)
-
-        d3 = self.conv3(x)                      # -> (512, 14, 14)
-        x = self.pool3(d3)                      # -> (512, 7, 7)
-
-        m = self.middle(x)                      # -> (1024, 14, 14)
-
-        B, C, W, H = m.shape
-        m = m.view(-1, C*W*H)                   # -> (1, d), d=14*14*1024=50176
-        mu = self.fc_mu(m)
-        logvar = self.fc_logvar(m)
-        logvar = torch.clamp(logvar, min=-5, max=5)
-
-        z = self.reparameterize(mu, logvar)     # -> (,64)
-        z = torch.tanh(self.fc_up(z))                       # -> (, 1024*14*14)
-
-        z = z.view(-1, C, W, H)                 # -> (, 1024, 14, 14)
-
-        up3 = self.refine3(torch.cat([self.up3(z), d3], dim=1))   # -> (512, 28, 28)
-        up2 = self.refine2(torch.cat([self.up2(up3), d2], dim=1)) # -> (256, 56, 56)
-        up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1)) # -> (128, 112, 112)
-        up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1)) # -> (64, 224, 224)
-        out = self.head(up0)
-
-        return out, mu, logvar
-
-    def __init__(self, in_channels, latent_dims, p_dropout, image_size):
-        super().__init__()
-        """
-        Assumptions for dimension calculations
-        H_in, W_in = 224
-        Conv:          {h/w}_out = [({h/w}_in + 2p - d(k - 1) - 1) / s] + 1
-        ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        """
-        self.image_size = image_size
-
-        self.conv0 = DoubleConv(3, 64, p_dropout)                 # -> (64, 224, 224)
-        self.pool0 = nn.MaxPool2d(2)                                # -> (64, 112, 112)
-
-        self.conv1 = DoubleConv(64, 128, p_dropout)                 # -> (128, 112, 112)
-        self.pool1 = nn.MaxPool2d(2)                                # -> (128, 56, 56) 
-
-        self.conv2 = DoubleConv(128, 256, p_dropout)                # -> (256, 56, 56)
-        self.pool2 = nn.MaxPool2d(2)                                # -> (256, 28, 28)
-
-        self.conv3 = DoubleConv(256, 512, p_dropout)                # -> (512, 28, 28)
-        self.pool3 = nn.MaxPool2d(2)                                # -> (512, 14, 14)
-
-        self.middle = DoubleConv(512, 1024, p_dropout)              # -> (1024, 14, 14)
-
-        C, H, W = self._get_flattened_shape(in_channels)
-        print(f"flattened shape (C, H, W): ({C, H, W})")
-        self.flattened_dim = C * H * W
-        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims)     # -> (1024*14*14, 64), 1024*14*14 = 50176
-        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (1024*14*14, 64)
-
-        self.fc_up = nn.Linear(latent_dims, C*W*H)                  # -> (64, 1024*14*14)
-
-        # # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        self.up3 = nn.ConvTranspose2d(1024, 512, 2, stride=2)       # -> (
-        self.refine3 = DoubleConv(1024, 512, p_dropout)
-
-        self.up2 = nn.ConvTranspose2d(512, 256, 2, stride=2)        # -> (
-        self.refine2 = DoubleConv(512, 256, p_dropout)
-
-        self.up1 = nn.ConvTranspose2d(256, 128, 2, stride=2)        # -> (
-        self.refine1 = DoubleConv(256, 128, p_dropout)
-
-        self.up0 = nn.ConvTranspose2d(128, 64, 2, stride=2)         # -> (
-        self.refine0 = DoubleConv(128, 64, p_dropout)               # -> (64, 224, 224)
-
-        self.head = nn.Conv2d(64, 3, 1, padding=0, stride=1)        # -> (3, 124, 124)
-
-
-    def _get_flattened_shape(self, in_channels):
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
-            # d0 = self.layer0(dummy)
-            d0 = self.conv0(dummy)
-            x = self.pool0(d0)
-
-            d1 = self.conv1(x)
-            x = self.pool1(d1)
-
-            d2 = self.conv2(x)
-            x = self.pool2(d2)
-
-            d3 = self.conv3(x)
-            x = self.pool3(d3)
-
-            m = self.middle(x)
-            _, C, H, W = m.shape
-
-            return C, H, W
-
-    def reparameterize(self, mu, logvar):
-        logvar = torch.clamp(logvar, min=-10, max=10)
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
-
-    def forward(self, x):
-        # d0 = self.layer0(x)                     # -> (64, 112, 112)
-        d0 = self.conv0(x)                     # -> (64, 112, 112)
-        x = self.pool0(d0)                      # -> (64, 56, 56)
-
-        d1 = self.conv1(x)
-        x = self.pool1(d1)
-
-        d2 = self.conv2(x)                      # -> (256, 28, 28)
-        x = self.pool2(d2)                      # -> (256, 14, 14)
-
-        d3 = self.conv3(x)                      # -> (512, 14, 14)
-        x = self.pool3(d3)                      # -> (512, 7, 7)
-
-        m = self.middle(x)                      # -> (1024, 14, 14)
-
-        B, C, W, H = m.shape
-        m = m.view(-1, C*W*H)                   # -> (1, d), d=14*14*1024=50176
-        mu = self.fc_mu(m)
-        logvar = self.fc_logvar(m)
-        logvar = torch.clamp(logvar, min=-5, max=5)
-
-        z = self.reparameterize(mu, logvar)     # -> (,64)
-        z = torch.tanh(self.fc_up(z))                       # -> (, 1024*14*14)
-
-        z = z.view(-1, C, W, H)                 # -> (, 1024, 14, 14)
-
-        up3 = self.refine3(torch.cat([self.up3(z), d3], dim=1))   # -> (512, 28, 28)
-        up2 = self.refine2(torch.cat([self.up2(up3), d2], dim=1)) # -> (256, 56, 56)
-        up1 = self.refine1(torch.cat([self.up1(up2), d1], dim=1)) # -> (128, 112, 112)
-        up0 = self.refine0(torch.cat([self.up0(up1), d0], dim=1)) # -> (64, 224, 224)
-        out = self.head(up0)
-
-        return out, mu, logvar
+    def decode(self, z):
+        x = torch.relu(self.fc1(z))
+        return self.fc2(x)
 
 
 class VAEConv(nn.Module):
-    def __init__(self, in_channels, latent_dims, p_dropout, image_size):
+    def __init__(self):
         super().__init__()
-        """
-        Assumptions for dimension calculations
-        H_in, W_in = 224
-        Conv:          {h/w}_out = [({h/w}_in + 2p - d(k - 1) - 1) / s] + 1
-        ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        """
-        self.image_size = image_size
-
-        self.conv0 = DoubleConv(3, 64, p_dropout)                   # -> (64, 224, 224)
-        self.pool0 = nn.MaxPool2d(2)                                # -> (64, 112, 112)
-
-        self.conv1 = DoubleConv(64, 128, p_dropout)                 # -> (128, 112, 112)
-        self.pool1 = nn.MaxPool2d(2)                                # -> (128, 56, 56) 
-
-        self.conv2 = DoubleConv(128, 256, p_dropout)                # -> (256, 56, 56)
-        self.pool2 = nn.MaxPool2d(2)                                # -> (256, 28, 28)
-
-        self.middle = DoubleConv(256, 256, p_dropout)               # -> (256, 14, 14)
-
-        C, H, W = self._get_flattened_shape(in_channels)
-        self.C, self.H, self.W = C, H, W
-        print(f"flattened shape (C, H, W): ({C, H, W})")
-        self.flattened_dim = C * H * W
-        self.fc_mu = nn.Linear(self.flattened_dim, latent_dims)     # -> (U, 64), U = 256*14*14 = 50176
-        self.fc_logvar = nn.Linear(self.flattened_dim, latent_dims) # -> (U, 64)
-        nn.init.xavier_uniform_(self.fc_mu.weight, gain=0.1)
-        nn.init.xavier_uniform_(self.fc_logvar.weight, gain=0.1)
-
-        self.fc_up = nn.Linear(latent_dims, C*W*H)                  # -> (64, U)
-                                                            # Reshape -> (256, 14, 14)
-        # # ConvTranspose: {h/w}_out = ({h/w}_in - 1)s - 2p + k + output_padding
-        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)          # -> (256, 28, 28)
-        self.bn2 = nn.BatchNorm2d(num_features=128)
-        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)           # -> (64, 112, 112)
-        self.bn1 = nn.BatchNorm2d(num_features=64)
-        self.up0 = nn.ConvTranspose2d(64, 64, 2, stride=2)           # -> (3, 224, 224)
-        self.bn0 = nn.BatchNorm2d(num_features=64)
-        self.head = nn.Conv2d(64, 3, 1, padding=0, stride=1)        # -> (3, 124, 124)
 
 
-    def _get_flattened_shape(self, in_channels):
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, self.image_size, self.image_size)
-            # d0 = self.layer0(dummy)
-            d0 = self.conv0(dummy)
-            x = self.pool0(d0)
-
-            d1 = self.conv1(x)
-            x = self.pool1(d1)
-
-            d2 = self.conv2(x)
-            x = self.pool2(d2)
-
-            m = self.middle(x)
-            _, C, H, W = m.shape
-
-            return C, H, W
-
-
-    def forward(self, x):
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        # z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
-        x_hat = self.decode(z)
-        return x_hat, mu, logvar
-
-
-    def reparameterize(self, mu, logvar):
-        logvar = torch.clamp(logvar, min=-10, max=10)
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + std * eps
-
-
-    def encode(self, x):
-        d0 = self.conv0(x)                              # -> (64, 224, 224)
-        x = self.pool0(d0)                              # -> (64, 112, 112)
-
-        d1 = self.conv1(x)                              # -> (128, 112, 112)
-        x = self.pool1(d1)                              # -> (128, 56, 56)
-
-        d2 = self.conv2(x)                              # -> (256, 56, 56)
-        x = self.pool2(d2)                              # -> (256, 28, 28)
-
-        m = self.middle(x)                              # -> (256, 28, 28)
-
-        _, C, W, H = m.shape
-        m = m.view(-1, C*W*H)                           # -> (1, U), U=256*28*28
-        mu = self.fc_mu(m)
-        logvar = self.fc_logvar(m)
-
-        return mu, logvar
-    
-
-    def decode(self, z):
-        z = torch.tanh(self.fc_up(z))                   # -> (, 256*14*14)
-        z = z.view(-1, self.C, self.W, self.H)          # -> (, 256, 28, 28)
-        x = torch.relu(self.bn2(self.up2(z)))       # -> (128, 56, 56)
-        x = torch.relu(self.bn1(self.up1(x)))
-        x = torch.relu(self.bn0(self.up0(x)))
-        out = self.head(x)
-        return out
-
-
-def vae_loss_bce(x, x_hat, mu, logvar):
-    x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
-    recon_loss = F.binary_cross_entropy_with_logits(x_hat, x, reduction="mean")
+def vae_loss(x, x_hat, mu : torch.Tensor, logvar : torch.Tensor, loss):
+    recon_loss = loss(x_hat, x, reduction='sum')
     kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    kl_weight = 1e-3
-    return recon_loss + kl_weight * kl_div
-
-
-def linear_anneal_kl(config, epoch):
-    # Increase kl_weight linearly over epochs
-    progress = min(epoch / config.n_epochs, config.kl_clip)
-    return config.kl_start + (config.kl_end - config.kl_start) * progress
-
-
-def vae_loss_mse(x, x_hat, mu, logvar, kl_weight):
-    recon_loss = F.mse_loss(x_hat, x, reduction="sum")
-    kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    λ = recon_loss + kl_weight * kl_div
-    N = x.size(0)
-    return λ / N
+    return (recon_loss + kl_div) / x.size(0)
 
 
 def show_reconstructions(config, model, data_loader, num_images=8):
@@ -537,16 +67,21 @@ def show_reconstructions(config, model, data_loader, num_images=8):
     with torch.no_grad():
         for inputs, _ in data_loader:
             inputs = inputs.to(config.device)
+            if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
             x_hat, _, _ = model(inputs)
             x_hat = torch.sigmoid(x_hat)  # output logits → probability
             break  # take only one batch
 
     # reshape to (B, 1, 28, 28)
     inputs = inputs.cpu()
+    inputs = inputs.view(
+        -1, config.num_channels, config.image_size, config.image_size).cpu()
     x_hat = x_hat.view(
         -1, config.num_channels, config.image_size, config.image_size).cpu()
 
     # concat input/output for side-by-side view
+    print(f"inputs.shape {inputs.shape}")
+    print(f"x_hat.shape {x_hat.shape}")
     comparison = torch.cat([inputs[:num_images], x_hat[:num_images]])
     grid = vutils.make_grid(comparison, nrow=num_images)
     plt.figure(figsize=(15, 4))
@@ -608,8 +143,10 @@ def interpolate_latents(config, model, dataset, num_steps=10):
         plt.imshow(grid.permute(1, 2, 0).squeeze(), cmap="gray")
         plt.show()
 
+
 def get_train_val_dl(dataset, config):
     train_len = int(len(dataset) * config.p_train_len)
+
     train_ds, val_ds = random_split(dataset, [train_len, len(dataset) - train_len])
 
     train_dl = DataLoader(
@@ -625,152 +162,74 @@ def get_train_val_dl(dataset, config):
     )
     return train_dl, val_dl
 
+
 def train_test_model(config):
-    config_dict = OmegaConf.to_container(config)
-    wandb.init(
-        project=config.project,
-        name=config.name,
-        config=config_dict,
-        mode=config.wandb_mode,
-    )
-    if config.dataset_name == 'cifar10':
-        dataset = datasets.CIFAR10(
+    if config.dataset_name == 'mnist':
+        dataset = datasets.MNIST(
             root=config.data_root,
-            download=(True if config.env == 'server' else False),
-            # download=download,
+            download=False,
             transform=T.Compose([
                 T.Resize((config.image_size, config.image_size)),
                 T.ToTensor(),
             ])
         )
-    
-    if config.dataset_name == 'minst':
-        dataset = datasets.MNIST(
-            root=config.data_root,
-            download=False,
-            transform=T.Compose([
-                T.ToTensor(),
-            ]),
-        )
-    print("Dataset loaded")
+    else:
+        raise Exception("No dataset specified")
+        exit()
 
     train_dl, val_dl = get_train_val_dl(dataset, config)
-    print("Dataloaders created")
-
-    print("Loading model")
+    
     if config.model_type == 'mlp':
-        input_dims = config.num_channels * config.image_size * config.image_size
-        model = VAELinear(input_dims)
-    if config.model_type == 'unet':
-        model = VAEUnet256(
-            in_channels=3,
-            latent_dims=64,
-            p_dropout=config.p_dropout,
-            image_size=config.image_size
-        )
-    if config.model_type == 'conv':
-        model = VAEConv(
-            in_channels=3,
-            latent_dims=64,
-            p_dropout=config.p_dropout,
-            image_size=config.image_size
-        )
+        model = VAEMlp(input_dims=784, hidden_dims=256, latent_dims=config.latent_dims)
+    else:
+        raise Exception("No model specified")
+        exit()
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
-    print("Training Start")
-    best_val_loss = float('inf')
-    train_epoch_loss = 0.0
-    val_epoch_loss = 0.0
-    for epoch in range(1, config.n_epochs+1):
-        tqdm.write(f"Epoch {epoch}/{config.n_epochs+1}")
-        model.train()
-        total_loss = 0.0
+    for epoch in range(1, config.n_epochs + 1):
         with tqdm(train_dl, desc="Training") as pbar:
+            model.train()
+            tqdm.write(f"Epoch {epoch}/{config.n_epochs+1}")
+            total_train_loss = 0.0
             for inputs, _ in pbar:
                 inputs = inputs.to(config.device)
-                x_hat, mu, logvar = model(inputs)
+                if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
 
+                recons, mu, logvar = model(inputs)
                 optimizer.zero_grad()
 
-                if config.model_type == 'mlp':
-                    inputs = torch.flatten(inputs, start_dim=1)
-                    loss = vae_loss_bce(inputs, x_hat, mu, logvar)
-                else:
-                    recon = torch.sigmoid(x_hat)
-                    kl_weight = linear_anneal_kl(config, epoch)
-                    loss = vae_loss_mse(inputs, recon, mu, logvar, kl_weight)
+                f = F.binary_cross_entropy_with_logits if config.dataset_name == 'mnist' else F.mse_loss
+                loss : torch.Tensor = vae_loss(inputs, recons, mu, logvar, f)
 
                 loss.backward()
-
-                #### Gradient Clipping #####
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-                ########## DEBUGGING ########## 
-                for name, p in model.named_parameters():
-                    if p.grad is not None:
-                        if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
-                            print(f"Bad grad in {name}")
-                        grad_norm = p.grad.data.norm().item()
-                        if grad_norm > 100:
-                            print(f"Large grad norm in {name}: {grad_norm:.1e}")
-
                 optimizer.step()
-                total_loss += loss.item()
-                
-                activ = x_hat
-                wandb.log({
-                    "mu_max":   mu.max().item(),   "mu_min": mu.min().item(),
-                    "logvar_max": logvar.max().item(), "logvar_min": logvar.min().item(),
-                    "act_max": activ.max().item(),     "act_min": activ.min().item(),
-                })
 
-                pbar.set_postfix(batch_loss=f"{loss.item():.4f}")
-        train_epoch_loss = total_loss / len(train_dl)
-        tqdm.write(f"Train Loss: {train_epoch_loss:.2f}")
+                total_train_loss += loss.item()
+                pbar.set_postfix(loss=f"{loss.item():.4f}")
+            train_epoch_loss = total_train_loss / len(train_dl)
+        tqdm.write(f"Train Loss {train_epoch_loss:.6f}")
 
         with tqdm(val_dl, desc="Validation") as pbar:
             model.eval()
             with torch.no_grad():
-                total_loss = 0.0
+                total_val_loss = 0.0
                 for inputs, _ in pbar:
                     inputs = inputs.to(config.device)
-                    x_hat, mu, logvar = model(inputs)
+                    if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
+                    recons, mu, logvar = model(inputs)
 
-                    if config.model_type == 'mlp':
-                        inputs = torch.flatten(inputs, start_dim=1)
-                        x_hat, mu, logvar = model(inputs)
-                    else:
-                        recon = torch.sigmoid(x_hat)
-                        kl_weight = linear_anneal_kl(config, epoch)
-                        loss = vae_loss_mse(inputs, recon, mu, logvar, kl_weight)
+                    f = F.binary_cross_entropy_with_logits if config.dataset_name == 'mnist' else F.mse_loss
+                    loss : torch.Tensor = vae_loss(inputs, recons, mu, logvar, f)
+                    total_val_loss += loss.item()
 
-                    total_loss += loss.item()
-                    pbar.set_postfix(batch_loss=f"{loss.item():.4f}")
-                val_epoch_loss = total_loss / len(val_dl)
-
-        tqdm.write(f"Val Loss: {val_epoch_loss:.2f}")
-
-        if config.save_model and (val_epoch_loss < best_val_loss):
-            best_val_loss = val_epoch_loss
-            tqdm.write("Writing best model...")
-            torch.save(model.state_dict(), "best_model.pth")
-            artifact = wandb.Artifact(name=f"{config.name}_best_model", type="model")
-            artifact.add_file("best_model.pth")
-            wandb.log_artifact(artifact)
-            tqdm.write("Model written.")
-
-        wandb.log({
-            "epoch": epoch,
-            "train/loss": train_epoch_loss,
-            "val/loss": val_epoch_loss,
-            "kl_weight": kl_weight
-        })
-    
+                    pbar.set_postfix(loss=f"{loss.item():.4f}")
+                val_epoch_loss = total_val_loss / len(val_dl)
+            tqdm.write(f"Val Loss {val_epoch_loss:.6f}")
     if config.local_visualization:
-        show_reconstructions(config, model, train_dl)
-        # show_samples(config, model, latent_dim=16, num_images=10)
-        interpolate_latents(config, model, dataset, num_steps=10)
+        show_reconstructions(config, model, val_dl, num_images=8)
+        show_samples(config, model, latent_dim=config.latent_dims)
+        
 
 
 def load_config(env="local"):
@@ -797,14 +256,7 @@ def load_and_test_model(config):
         # Load model
         input_dims = config.num_channels * config.image_size * config.image_size
         if config.model_type == 'mlp':
-            model = VAELinear(input_dims).to(config.device)
-        if config.model_type == 'unet':
-            model = VAEUnet256(
-                in_channels=3,
-                latent_dims=64,
-                p_dropout=config.p_dropout,
-                image_size=config.image_size
-            ).to(config.device)
+            model = VAEMlp(input_dims).to(config.device)
         else:
             model = VAEConv(
                 in_channels=3,
@@ -844,15 +296,16 @@ def main():
     config.device, config.env = device, env
     print(f"Seed {config.seed} Device {config.device}")
 
-    # for epoch in range(1, config.n_epochs):
-    #     print(linear_anneal_kl(config, epoch))
-    # exit()
-
     if config.summary:
-        m = VAEConv(config.num_channels, 64, config.p_dropout, config.image_size)
+        if config.model_type == 'mlp':
+            m = VAEMlp(input_dims=784, hidden_dims=256, latent_dims=64)
+            input_shape = (1, 784)
+        else:
+            m = VAEConv(config.num_channels, 64, config.p_dropout, config.image_size)
+            input_shape = (1, config.num_channels, config.image_size, config.image_size)
         summary(
             m, 
-            input_size=(1, config.num_channels, config.image_size, config.image_size),  # Add batch size here!
+            input_size=input_shape,  # Add batch size here!
             col_names=["input_size", "output_size", "num_params"],
             # verbose=2
         )
