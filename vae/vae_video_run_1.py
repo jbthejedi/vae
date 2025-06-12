@@ -401,7 +401,6 @@ def train_test_model(config):
             "epoch": epoch,
             "train/loss": train_epoch_loss,
             "val/loss": val_epoch_loss,
-            "kl_weight": kl_weight
         })
     
     show_reconstructions(config, model, val_dl, num_images=8)
