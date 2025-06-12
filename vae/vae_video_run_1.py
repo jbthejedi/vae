@@ -353,6 +353,8 @@ def train_test_model(config):
                 # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
                 loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
                 loss.backward()
+                #### Gradient Clipping #####
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 train_loss += loss.item()
                 pbar.set_postfix(train_loss=f"{train_loss / (batch_idx + 1):.2f}")
