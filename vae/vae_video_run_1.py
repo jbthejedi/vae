@@ -114,12 +114,12 @@ class DoubleConv(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(num_features=out_channels),
-            nn.GroupNorm(num_groups=8, num_channels=out_channels),
+            nn.BatchNorm2d(num_features=out_channels),
+            # nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            # nn.BatchNorm2d(num_features=out_channels),
-            nn.GroupNorm(num_groups=8, num_channels=out_channels),
+            nn.BatchNorm2d(num_features=out_channels),
+            # nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True),
             nn.Dropout(p=p_dropout),
         )
