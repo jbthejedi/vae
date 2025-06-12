@@ -365,17 +365,18 @@ def train_test_model(config):
         tqdm.write(f"Train Loss {train_epoch_loss:.2f}")
 
         with tqdm(val_dl, desc="Validation") as pbar:
-            model.eval()
-            val_loss = 0.0
-            for batch_idx, (inputs, _) in enumerate(pbar):
-                inputs = inputs.to(config.device)
-                # inputs = torch.flatten(inputs, start_dim=1)
-                recons, mu, logvar = model(inputs)
-                # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
-                loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
-                val_loss += loss.item()
-                pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
-        val_epoch_loss = val_loss / len(val_dl)
+            with torch.no_grad():
+                model.eval()
+                val_loss = 0.0
+                for batch_idx, (inputs, _) in enumerate(pbar):
+                    inputs = inputs.to(config.device)
+                    # inputs = torch.flatten(inputs, start_dim=1)
+                    recons, mu, logvar = model(inputs)
+                    # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
+                    loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
+                    val_loss += loss.item()
+                    pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
+            val_epoch_loss = val_loss / len(val_dl)
         tqdm.write(f"val Loss {val_epoch_loss:.2f}")
     
     show_reconstructions(config, model, val_dl, num_images=8)
