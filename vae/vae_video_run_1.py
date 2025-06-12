@@ -52,13 +52,16 @@ class VAEConv(nn.Module):
 
         self.fc_up = nn.Linear(latent_dims, self.flattened_dims) # -> (latent_dims, C*H*W)
         self.up3 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        self.bn3 = nn.BatchNorm2d(num_features=128)
+        # self.bn3 = nn.BatchNorm2d(num_features=128)
+        self.bn3 = nn.GroupNorm(num_groups=8)
 
         self.up2 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        self.bn2 = nn.BatchNorm2d(num_features=64)
+        # self.bn2 = nn.BatchNorm2d(num_features=64)
+        self.bn3 = nn.GroupNorm(num_groups=8)
 
         self.up1 = nn.ConvTranspose2d(64, 64, 2, stride=2)
-        self.bn1 = nn.BatchNorm2d(num_features=64)
+        # self.bn1 = nn.BatchNorm2d(num_features=64)
+        self.bn3 = nn.GroupNorm(num_groups=8)
 
         self.head = nn.ConvTranspose2d(64, out_channels, 1, stride=1)
         # 256 -> 128 -> 64 -> 64
@@ -101,7 +104,7 @@ class VAEConv(nn.Module):
 
 
     def decode(self, z):
-        x = torch.relu(self.fc_up(z))
+        x = torch.tanh(self.fc_up(z))
         C, H, W = self.chw
         x = x.view(-1, C, H, W)
         x = torch.relu(self.bn3(self.up3(x)))
