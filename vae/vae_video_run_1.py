@@ -46,6 +46,9 @@ class VAEConv(nn.Module):
         self.chw = C, H, W
         self.fc_mu = nn.Linear(in_features=self.flattened_dims, out_features=latent_dims)
         self.fc_logvar = nn.Linear(in_features=self.flattened_dims, out_features=latent_dims)
+        ### Added ### 
+        nn.init.xavier_uniform_(self.fc_mu.weight, gain=0.1)
+        nn.init.xavier_uniform_(self.fc_logvar.weight, gain=0.1)
 
         self.fc_up = nn.Linear(latent_dims, self.flattened_dims) # -> (latent_dims, C*H*W)
         self.up3 = nn.ConvTranspose2d(256, 128, 2, stride=2)
@@ -98,7 +101,7 @@ class VAEConv(nn.Module):
 
 
     def decode(self, z):
-        x = torch.tanh(self.fc_up(z))
+        x = torch.relu(self.fc_up(z))
         C, H, W = self.chw
         x = x.view(-1, C, H, W)
         x = torch.relu(self.bn3(self.up3(x)))
@@ -163,7 +166,7 @@ def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Cal
     # Analytic KL: -0.5 * (1 - log(sig^2) - mu^2 - e^(log(sig^2)))
     recon_loss = loss(input, target, reduction="sum") # F.binary_cross_entropy_with_logits()
     kl_div_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return recon_loss + kl_div_loss / input.size(0)
+    return (recon_loss + kl_div_loss) / input.size(0)
 
 
 def show_reconstructions(config, model, data_loader, num_images=8):
