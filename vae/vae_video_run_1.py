@@ -52,16 +52,13 @@ class VAEConv(nn.Module):
 
         self.fc_up = nn.Linear(latent_dims, self.flattened_dims) # -> (latent_dims, C*H*W)
         self.up3 = nn.ConvTranspose2d(256, 128, 2, stride=2)
-        # self.bn3 = nn.BatchNorm2d(num_features=128)
-        self.bn3 = nn.GroupNorm(num_groups=8)
+        self.bn3 = nn.BatchNorm2d(num_features=128)
 
         self.up2 = nn.ConvTranspose2d(128, 64, 2, stride=2)
-        # self.bn2 = nn.BatchNorm2d(num_features=64)
-        self.bn3 = nn.GroupNorm(num_groups=8)
+        self.bn2 = nn.BatchNorm2d(num_features=64)
 
         self.up1 = nn.ConvTranspose2d(64, 64, 2, stride=2)
-        # self.bn1 = nn.BatchNorm2d(num_features=64)
-        self.bn3 = nn.GroupNorm(num_groups=8)
+        self.bn1 = nn.BatchNorm2d(num_features=64)
 
         self.head = nn.ConvTranspose2d(64, out_channels, 1, stride=1)
         # 256 -> 128 -> 64 -> 64
@@ -117,10 +114,12 @@ class DoubleConv(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(num_features=out_channels),
+            # nn.BatchNorm2d(num_features=out_channels),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(num_features=out_channels),
+            # nn.BatchNorm2d(num_features=out_channels),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True),
             nn.Dropout(p=p_dropout),
         )
@@ -315,6 +314,13 @@ def load_and_test_model(config):
 
 
 def train_test_model(config):
+    config_dict = OmegaConf.to_container(config)
+    wandb.init(
+        project=config.project,
+        name=config.name,
+        config=config_dict,
+        mode=config.wandb_mode,
+    )
     if config.dataset_name == 'mnist':
         dataset = datasets.MNIST(
             root=config.data_root,
@@ -381,6 +387,22 @@ def train_test_model(config):
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)
         tqdm.write(f"val Loss {val_epoch_loss:.2f}")
+
+        if config.save_model and (val_epoch_loss < best_val_loss):
+            best_val_loss = val_epoch_loss
+            tqdm.write("Writing best model...")
+            torch.save(model.state_dict(), "best_model.pth")
+            artifact = wandb.Artifact(name=f"{config.name}_best_model", type="model")
+            artifact.add_file("best_model.pth")
+            wandb.log_artifact(artifact)
+            tqdm.write("Model written.")
+
+        wandb.log({
+            "epoch": epoch,
+            "train/loss": train_epoch_loss,
+            "val/loss": val_epoch_loss,
+            "kl_weight": kl_weight
+        })
     
     show_reconstructions(config, model, val_dl, num_images=8)
     show_samples(config, model, latent_dim=16, num_images=8)
