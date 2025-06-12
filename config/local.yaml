@@ -1,29 +1,30 @@
-name: vae-conv-save
+name: vae-conv-video
 data_root: /Users/justinbarry/projects/data/
 dataset_name: 'cifar10'
 # dataset_name: 'mnist'
 
-batch_size: 64
-# image_size: 224
-image_size: 128
+batch_size: 8
+image_size: 224
+# image_size: 128
 # image_size: 28
 n_epochs: 10
 num_channels: 3
 # num_channels: 1
 
-latent_dims: 16
+latent_dims: 128
 
 num_workers: 4
 
-artifact_name: jbarry-team/${project}/${name}_best_model:v23
+artifact_name: jbarry-team/${project}/${name}_best_model:latest
 download_data: False
 wandb_mode: disabled
 
 local_visualization: True
 save_model: False
-load_and_test_model: False
-# train_model: False
-train_model: True
+load_and_test_model: True
+# load_and_test_model: False
+train_model: False
+# train_model: True
 # summary: True
 summary: False
 

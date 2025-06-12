@@ -61,7 +61,8 @@ class VAEConv(nn.Module):
         self.up1 = nn.ConvTranspose2d(64, 64, 2, stride=2)
         self.bn1 = nn.BatchNorm2d(num_features=64)
 
-        self.head = nn.ConvTranspose2d(64, out_channels, 1, stride=1)
+        #### ADDED ####
+        self.head = nn.Conv2d(64, out_channels, 1, stride=1)
         # 256 -> 128 -> 64 -> 64
     
     
@@ -287,8 +288,9 @@ def load_and_test_model(config):
             model = VAEMlp(input_dims).to(config.device)
         else:
             model = VAEConv(
-                in_channels=3,
-                latent_dims=64,
+                in_channels=config.num_channels,
+                out_channels=3,
+                latent_dims=config.latent_dims,
                 p_dropout=config.p_dropout,
                 image_size=config.image_size
             )
@@ -307,7 +309,8 @@ def load_and_test_model(config):
         _, val_dl = get_train_val_dl(dataset, config)
         print("Dataloaders created")
 
-        # show_reconstructions(config, model, val_dl)
+        show_reconstructions(config, model, val_dl)
+        show_samples(config, model, latent_dim=config.latent_dims)
         interpolate_latents(config, model, dataset, num_steps=10)
     except wandb.CommError as e:
         print(f"Artifact not found: {artifact_name}")
@@ -355,13 +358,15 @@ def train_test_model(config):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
+
+    ### ADDED ###
     best_val_loss = float('inf')
     train_epoch_loss = 0.0
     val_epoch_loss = 0.0
     for epoch in range(1, config.n_epochs + 1):
         tqdm.write(f"Epoch {epoch}/{config.n_epochs + 1}")
+        model.train()
         with tqdm(train_dl, desc="Training") as pbar:
-            model.train()
             train_loss = 0.0
             for batch_idx, (inputs, _) in enumerate(pbar):
                 inputs = inputs.to(config.device)
@@ -369,6 +374,9 @@ def train_test_model(config):
                 recons, mu, logvar = model(inputs)
                 optimizer.zero_grad()
                 # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
+
+                #### ADDED #####
+                recon = torch.sigmoid(recons)
                 loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
                 loss.backward()
 
