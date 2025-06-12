@@ -6,7 +6,7 @@ dataset_name: 'mnist'
 batch_size: 128
 # image_size: 224
 image_size: 28
-n_epochs: 4
+n_epochs: 2
 # num_channels: 3
 num_channels: 1
 
