@@ -1,14 +1,15 @@
 name: vae-conv-save
 data_root: /Users/justinbarry/projects/data/
-# dataset_name: 'cifar10'
-dataset_name: 'mnist'
+dataset_name: 'cifar10'
+# dataset_name: 'mnist'
 
-batch_size: 128
+batch_size: 64
 # image_size: 224
-image_size: 28
-n_epochs: 2
-# num_channels: 3
-num_channels: 1
+image_size: 128
+# image_size: 28
+n_epochs: 10
+num_channels: 3
+# num_channels: 1
 
 latent_dims: 16
 
@@ -21,9 +22,11 @@ wandb_mode: disabled
 local_visualization: True
 save_model: False
 load_and_test_model: False
+# train_model: False
 train_model: True
+# summary: True
 summary: False
 
-model_type: mlp
+# model_type: mlp
 # model_type: unet
-# model_type: conv
+model_type: conv
