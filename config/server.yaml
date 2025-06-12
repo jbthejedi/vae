@@ -15,7 +15,7 @@ wandb_mode: online
 # wandb_mode: disabled
 
 local_visualization: False
-save_model: True
+save_model: False
 load_and_test_model: False
 train_model: True
 
