@@ -101,7 +101,7 @@ class VAEConv(nn.Module):
 
 
     def decode(self, z):
-        x = torch.tanh(self.fc_up(z))
+        x = torch.relu(self.fc_up(z))
         C, H, W = self.chw
         x = x.view(-1, C, H, W)
         x = torch.relu(self.bn3(self.up3(x)))
