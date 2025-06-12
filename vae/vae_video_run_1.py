@@ -46,7 +46,8 @@ class VAEConv(nn.Module):
         self.chw = C, H, W
         self.fc_mu = nn.Linear(in_features=self.flattened_dims, out_features=latent_dims)
         self.fc_logvar = nn.Linear(in_features=self.flattened_dims, out_features=latent_dims)
-        ### Added ### 
+
+        ###### ADDED ######
         nn.init.xavier_uniform_(self.fc_mu.weight, gain=0.1)
         nn.init.xavier_uniform_(self.fc_logvar.weight, gain=0.1)
 
@@ -101,6 +102,7 @@ class VAEConv(nn.Module):
 
 
     def decode(self, z):
+        ###### ADDED ######
         x = torch.tanh(self.fc_up(z))
         C, H, W = self.chw
         x = x.view(-1, C, H, W)
@@ -352,6 +354,10 @@ def train_test_model(config):
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
+    print("Training Start")
+    best_val_loss = float('inf')
+    train_epoch_loss = 0.0
+    val_epoch_loss = 0.0
     for epoch in range(1, config.n_epochs + 1):
         tqdm.write(f"Epoch {epoch}/{config.n_epochs + 1}")
         with tqdm(train_dl, desc="Training") as pbar:
@@ -365,8 +371,11 @@ def train_test_model(config):
                 # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
                 loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
                 loss.backward()
+
+                ###### ADDED ######
                 #### Gradient Clipping #####
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
                 optimizer.step()
                 train_loss += loss.item()
                 pbar.set_postfix(train_loss=f"{train_loss / (batch_idx + 1):.2f}")
@@ -374,6 +383,7 @@ def train_test_model(config):
         tqdm.write(f"Train Loss {train_epoch_loss:.2f}")
 
         with tqdm(val_dl, desc="Validation") as pbar:
+            ###### ADDED ######
             with torch.no_grad():
                 model.eval()
                 val_loss = 0.0
@@ -388,6 +398,7 @@ def train_test_model(config):
             val_epoch_loss = val_loss / len(val_dl)
         tqdm.write(f"val Loss {val_epoch_loss:.2f}")
 
+        ###### ADDED ######
         if config.save_model and (val_epoch_loss < best_val_loss):
             best_val_loss = val_epoch_loss
             tqdm.write("Writing best model...")
@@ -397,6 +408,7 @@ def train_test_model(config):
             wandb.log_artifact(artifact)
             tqdm.write("Model written.")
 
+        ###### ADDED ######
         wandb.log({
             "epoch": epoch,
             "train/loss": train_epoch_loss,
