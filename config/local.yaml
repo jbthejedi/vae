@@ -1,4 +1,4 @@
-name: vae-conv-video
+name: vae-conv-mod-video
 data_root: /Users/justinbarry/projects/data/
 dataset_name: 'cifar10'
 # dataset_name: 'mnist'

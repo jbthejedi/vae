@@ -8,7 +8,7 @@ n_epochs: 20
 num_channels: 3
 
 ###### ADDED ######
-latent_dims: 128
+latent_dims: 64
 
 num_workers: 8
 

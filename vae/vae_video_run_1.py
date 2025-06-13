@@ -48,6 +48,14 @@ class VAEConv(nn.Module):
         self.fc_logvar = nn.Linear(in_features=self.flattened_dims, out_features=latent_dims)
 
         ###### ADDED ######
+        # Xavier initialization sets layer weights so that the variance
+        # of activations stays roughly the same across layers by scaling weights with
+        # \frac{1}{sqrt{fan_in + fan_out}}, where
+        # fan_in = Number of input units to the layer
+        # → How many inputs each neuron receives.
+
+        # fan_out = Number of output units from the layer
+        # → How many outputs each neuron produces.
         nn.init.xavier_uniform_(self.fc_mu.weight, gain=0.1)
         nn.init.xavier_uniform_(self.fc_logvar.weight, gain=0.1)
 
