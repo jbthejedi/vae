@@ -291,20 +291,10 @@ def train_test_model(config):
     print("Dataloaders created")
 
     print("Loading model")
-    if config.model_type == 'mlp':
-        input_dims = config.num_channels * config.image_size * config.image_size
-        model = VAELinear(input_dims)
-    if config.model_type == 'unet':
-        model = VAEUnet256(
-            in_channels=3,
-            latent_dims=64,
-            p_dropout=config.p_dropout,
-            image_size=config.image_size
-        )
     if config.model_type == 'conv':
         model = VAEConv(
             in_channels=3,
-            latent_dims=64,
+            latent_dims=config.latent_dims,
             p_dropout=config.p_dropout,
             image_size=config.image_size
         )
@@ -429,22 +419,12 @@ def load_and_test_model(config):
 
         # Load model
         input_dims = config.num_channels * config.image_size * config.image_size
-        if config.model_type == 'mlp':
-            model = VAELinear(input_dims).to(config.device)
-        if config.model_type == 'unet':
-            model = VAEUnet256(
-                in_channels=3,
-                latent_dims=64,
-                p_dropout=config.p_dropout,
-                image_size=config.image_size
-            ).to(config.device)
-        else:
-            model = VAEConv(
-                in_channels=3,
-                latent_dims=64,
-                p_dropout=config.p_dropout,
-                image_size=config.image_size
-            )
+        model = VAEConv(
+            in_channels=3,
+            latent_dims=config.latent_dims,
+            p_dropout=config.p_dropout,
+            image_size=config.image_size
+        )
         model.load_state_dict(torch.load(f"{artifact_dir}/best_model.pth", map_location="cpu"))
         model.eval()
         print("Model loaded successfully.")
@@ -460,7 +440,7 @@ def load_and_test_model(config):
         _, val_dl = get_train_val_dl(dataset, config)
         print("Dataloaders created")
 
-        # show_reconstructions(config, model, val_dl)
+        show_reconstructions(config, model, val_dl)
         interpolate_latents(config, model, dataset, num_steps=10)
     except wandb.CommError as e:
         print(f"Artifact not found: {artifact_name}")
