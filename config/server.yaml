@@ -1,4 +1,4 @@
-name: vae-conv-save
+name: vae-conv-basic
 data_root: /workspace/data
 dataset_name: 'celeba'
 
