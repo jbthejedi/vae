@@ -18,6 +18,8 @@ from typing import Callable
 from omegaconf import OmegaConf
 from PIL import Image
 
+torch.backends.cudnn.benchmark = True
+
 class VAEConv(nn.Module):
     def __init__(
         self, in_channels=3, out_channels=3,
@@ -281,11 +283,16 @@ def get_train_val_dl(dataset, config):
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=config.num_workers,
+        ### ADDED ####
+        pin_memory=True,
+        prefetch_factor=2,
     )
     val_dl = DataLoader(
         val_ds,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
+        pin_memory=True,
+        prefetch_factor=2,
     )
     return train_dl, val_dl
 
@@ -406,7 +413,9 @@ def train_test_model(config):
         latent_dims=config.latent_dims,
         p_dropout=config.p_dropout,
         image_size=config.image_size
-    ).to(config.device)
+    )
+    model = torch.compile(model)
+    model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
