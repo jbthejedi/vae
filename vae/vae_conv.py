@@ -147,8 +147,7 @@ def vae_loss_bce(x, x_hat, mu, logvar : torch.Tensor):
     x_hat = x_hat.clamp(min=-10, max=10)  # add this before BCEWithLogitsLoss
     recon_loss = F.binary_cross_entropy_with_logits(x_hat, x, reduction="sum")
     kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    kl_weight = 1.0
-    return (recon_loss + kl_weight * kl_div) / x.size(0)
+    return (recon_loss + kl_div) / x.size(0)
 
 
 def linear_anneal_kl(config, epoch):

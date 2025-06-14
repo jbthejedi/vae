@@ -10,13 +10,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from torchvision import datasets, transforms as T
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Dataset
 from tqdm import tqdm
 from torchinfo import summary
 
 from typing import Callable
 from omegaconf import OmegaConf
-
+from PIL import Image
 
 class VAEConv(nn.Module):
     def __init__(
@@ -118,7 +118,8 @@ class VAEConv(nn.Module):
         x = torch.relu(self.bn3(self.up3(x)))
         x = torch.relu(self.bn2(self.up2(x)))
         x = torch.relu(self.bn1(self.up1(x)))
-        return self.head(x)
+        return torch.sigmoid(self.head(x))
+
 
 class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, p_dropout=0.1):
@@ -137,6 +138,7 @@ class DoubleConv(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
 
 class VAEMlp(nn.Module):
     def __init__(self, input_dims=784, hidden_dims=256, latent_dims=16):
@@ -174,7 +176,6 @@ class VAEMlp(nn.Module):
         return mu, logvar
 
 
-
 def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Callable):
     # Analytic KL: -0.5 * (1 - log(sig^2) - mu^2 - e^(log(sig^2)))
     recon_loss = loss(input, target, reduction="sum") # F.binary_cross_entropy_with_logits()
@@ -189,7 +190,7 @@ def show_reconstructions(config, model, data_loader, num_images=8):
             inputs = inputs.to(config.device)
             if config.model_type == 'mlp': inputs = torch.flatten(inputs, start_dim=1)
             x_hat, _, _ = model(inputs)
-            x_hat = torch.sigmoid(x_hat)  # output logits → probability
+            # x_hat = torch.sigmoid(x_hat)  # output logits → probability
             break  # take only one batch
 
     # reshape to (B, 1, 28, 28)
@@ -216,8 +217,12 @@ def show_samples(config, model, latent_dim=16, num_images=8):
     with torch.no_grad():
         z = torch.randn(num_images, latent_dim).to(config.device)
         x_sample = model.decode(z)
-        x_sample = torch.sigmoid(x_sample).view(
-            -1, config.num_channels, config.image_size, config.image_size).cpu()
+        # x_sample = torch.sigmoid(x_sample).view(
+        #     -1, config.num_channels, config.image_size, config.image_size).cpu()
+        x_sample = x_sample.view(
+            -1, config.num_channels,
+            config.image_size, config.image_size
+        ).cpu()
 
     grid = vutils.make_grid(x_sample, nrow=num_images)
     plt.figure(figsize=(15, 4))
@@ -250,8 +255,10 @@ def interpolate_latents(config, model, dataset, num_steps=10):
         interpolated = []
         for alpha in torch.linspace(0, 1, steps=num_steps):
             z = (1 - alpha) * mu1 + alpha * mu2
-            x_hat = torch.sigmoid(model.decode(z)).view(
-                1, config.num_channels, config.image_size, config.image_size)
+            x_hat = model.decode(z).view(
+                1, config.num_channels,
+                config.image_size, config.image_size
+            )
             interpolated.append(x_hat.cpu())
 
         # Stack and visualize
@@ -260,7 +267,7 @@ def interpolate_latents(config, model, dataset, num_steps=10):
         plt.figure(figsize=(num_steps, 2))
         plt.axis("off")
         plt.title("Latent Interpolation")
-        plt.imshow(grid.permute(1, 2, 0).squeeze(), cmap="gray")
+        plt.imshow(grid.permute(1, 2, 0).squeeze())
         plt.show()
 
 
@@ -326,6 +333,23 @@ def load_and_test_model(config):
         exit(0)
 
 
+class CelebADataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.img_names = sorted([f for f in os.listdir(root_dir) if f.endswith(".jpg")])
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.img_names)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.root_dir, self.img_names[idx])
+        image = Image.open(img_path).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image, 0
+
+
 def train_test_model(config):
     config_dict = OmegaConf.to_container(config)
     wandb.init(
@@ -351,6 +375,27 @@ def train_test_model(config):
                 T.ToTensor(),
             ])
         )
+    elif config.dataset_name == 'celeba':
+        transform = T.Compose([
+            T.CenterCrop(178),
+            T.Resize(config.image_size),
+            T.ToTensor(),
+        ])
+        # dataset = datasets.ImageFolder(
+        #     root=os.path.join(config.data_root, "img_align_celeba"),
+        #     transform=transform
+        # )
+        dataset = CelebADataset(
+            root_dir=os.path.join(config.data_root, "img_align_celeba"),
+            transform=transform
+        )
+        # dataset = datasets.CelebA(
+        #     root=config.data_root,
+        #     split="train",
+        #     target_type="none",
+        #     download=True,
+        #     transform=transform
+        # )
     else:
         raise Exception('No dataset provided')
 
@@ -360,9 +405,8 @@ def train_test_model(config):
         out_channels=3,
         latent_dims=config.latent_dims,
         p_dropout=config.p_dropout,
-        image_size=config.image_size)
-    # VAEConv()
-    model = model.to(config.device)
+        image_size=config.image_size
+    ).to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
@@ -384,8 +428,7 @@ def train_test_model(config):
                 # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
 
                 #### ADDED #####
-                recon = torch.sigmoid(recons)
-                loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
+                loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy)
                 loss.backward()
 
                 ###### ADDED ######
@@ -408,7 +451,7 @@ def train_test_model(config):
                     # inputs = torch.flatten(inputs, start_dim=1)
                     recons, mu, logvar = model(inputs)
                     # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
-                    loss = vae_loss(recons, inputs, mu, logvar, F.mse_loss)
+                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy)
                     val_loss += loss.item()
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)
@@ -434,6 +477,7 @@ def train_test_model(config):
     show_reconstructions(config, model, val_dl, num_images=8)
     show_samples(config, model, latent_dim=16, num_images=8)
     interpolate_latents(config, model, dataset, num_steps=10)
+
 
 def main():
     env = os.environ.get("ENV", "local")

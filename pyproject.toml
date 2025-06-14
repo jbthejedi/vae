@@ -53,7 +53,8 @@ dependencies = [
     "sympy (==1.14.0)",
     "typing-inspection (==0.4.1)",
     "typing-extensions (==4.14.0)",
-    "urllib3 (==2.4.0)"
+    "urllib3 (==2.4.0)",
+    "gdown (>=5.2.0,<6.0.0)"
 ]
 
 
