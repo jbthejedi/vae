@@ -482,19 +482,21 @@ def train_test_model(config):
         ###### ADDED ######
         if config.save_model and (val_epoch_loss < best_val_loss):
             best_val_loss = val_epoch_loss
-            tqdm.write("Writing best model...")
-            torch.save(model.state_dict(), "best-model.pth")
-            artifact = wandb.Artifact(name=f"{config.name}-best-model", type="model")
-            artifact.add_file("best-model.pth")
-            wandb.log_artifact(artifact)
-            tqdm.write("Model written.")
-
+            tqdm.write(f"New best val loss: {best_val_loss:.4f} — overwriting best-model.pth")
+            # overwrite local file
+            torch.save(model._orig_mod.state_dict(), "best_model.pth")
         ###### ADDED ######
         wandb.log({
             "epoch": epoch,
             "train/loss": train_epoch_loss,
             "val/loss": val_epoch_loss,
         })
+    if config.save_model:
+        tqdm.write("Logging final best-model.pth to wandb as a single artifact…")
+        artifact = wandb.Artifact(name=f"{config.name}-best-model", type="model")
+        artifact.add_file("best-model.pth")
+        wandb.log_artifact(artifact)
+        tqdm.write("Done.")
     
     show_reconstructions(config, model, val_dl, num_images=8)
     show_samples(config, model, latent_dim=16, num_images=8)
