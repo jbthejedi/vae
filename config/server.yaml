@@ -1,4 +1,4 @@
-name: vae-conv-basic
+name: vae-sdxl
 data_root: /workspace/data
 dataset_name: 'celeba'
 
