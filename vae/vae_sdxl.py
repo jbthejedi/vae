@@ -264,8 +264,7 @@ def train_test_model(config):
                 # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
 
                 #### ADDED #####
-                recons = torch.sigmoid(recons)
-                loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy)
+                loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
                 loss.backward()
 
                 ###### ADDED ######
@@ -288,7 +287,7 @@ def train_test_model(config):
                     # inputs = torch.flatten(inputs, start_dim=1)
                     recons, mu, logvar = model(inputs)
                     # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
-                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy)
+                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
                     val_loss += loss.item()
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)
