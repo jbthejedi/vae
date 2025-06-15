@@ -8,6 +8,11 @@ authors = [
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = "^3.10"
+
+packages = [
+  { include = "vae" }
+]
+
 dependencies = [
     "torch (==2.7.0)",
     "torchvision (==0.22.0)",
@@ -65,4 +70,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 setuptools = "^80.9.0"
-

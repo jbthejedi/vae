@@ -17,6 +17,9 @@ download_data: True
 wandb_mode: online
 # wandb_mode: disabled
 
+test_run: False
+sample_size: 300
+
 local_visualization: False
 save_model: False
 load_and_test_model: False
