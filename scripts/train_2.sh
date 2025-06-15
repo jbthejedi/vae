@@ -1,5 +1,5 @@
 # Run the training script
-ENV=server poetry run python /workspace/vae/vae/vae_conv.py
+ENV=server poetry run python /workspace/vae/vae/vae_sdxl.py
 
 # Capture the exit code
 EXIT_CODE=$?
