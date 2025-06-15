@@ -484,7 +484,7 @@ def train_test_model(config):
             best_val_loss = val_epoch_loss
             tqdm.write(f"New best val loss: {best_val_loss:.4f} — overwriting best-model.pth")
             # overwrite local file
-            torch.save(model._orig_mod.state_dict(), "best_model.pth")
+            torch.save(model._orig_mod.state_dict(), "best-model.pth")
         ###### ADDED ######
         wandb.log({
             "epoch": epoch,
