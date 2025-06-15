@@ -241,7 +241,7 @@ def train_test_model(config):
         num_groups=32,
         latent_channels=4
     )
-    # model = torch.compile(model)
+    model = torch.compile(model)
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
@@ -297,7 +297,7 @@ def train_test_model(config):
         if config.save_model and (val_epoch_loss < best_val_loss):
             best_val_loss = val_epoch_loss
             tqdm.write("Writing best model...")
-            torch.save(model.state_dict(), "best-model.pth")
+            torch.save(model._orig_mod.state_dict(), "best_model.pth")
             artifact = wandb.Artifact(name=f"{config.name}-best-model", type="model")
             artifact.add_file("best-model.pth")
             wandb.log_artifact(artifact)
