@@ -179,17 +179,13 @@ class VAEMlp(nn.Module):
         return mu, logvar
 
 
-# 2. Perceptual loss
-def lpips_loss(x, x_hat, lpips_fn):
-    return lpips_fn(x, x_hat, normalize=True).mean()
-
 
 def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Callable, lpips_fn):
     # Analytic KL: -0.5 * (1 - log(sig^2) - mu^2 - e^(log(sig^2)))
     recon_loss = loss(input, target, reduction="sum") # F.binary_cross_entropy_with_logits()
     kl_div_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
-    lpips_loss = lpips_fn(target, input, lpips_fn).view(-1).sum()
+    lpips_loss = lpips_fn(target, input, normalize=True).view(-1).sum()
 
     return (recon_loss + lpips_loss + kl_div_loss) / input.size(0)
 
@@ -429,7 +425,7 @@ def train_test_model(config):
         p_dropout=config.p_dropout,
         image_size=config.image_size
     )
-    model = torch.compile(model)
+    if config.compile: model = torch.compile(model)
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
@@ -477,7 +473,7 @@ def train_test_model(config):
                     # inputs = torch.flatten(inputs, start_dim=1)
                     recons, mu, logvar = model(inputs)
                     # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
-                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy)
+                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy, lpips_fn)
                     val_loss += loss.item()
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)

@@ -241,7 +241,7 @@ def train_test_model(config):
         num_groups=32,
         latent_channels=4
     )
-    model = torch.compile(model)
+    if config.compile: model = torch.compile(model)
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 

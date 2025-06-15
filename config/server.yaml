@@ -26,3 +26,4 @@ summary: False
 # model_type: mlp
 # model_type: unet
 model_type: conv
+compile: False
