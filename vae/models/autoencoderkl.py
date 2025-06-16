@@ -17,10 +17,6 @@ from omegaconf import OmegaConf
 from PIL import Image
 
 
-# ----------------------------------
-# Basic building blocks
-# ----------------------------------
-
 class ResnetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, num_groups=32):
         super().__init__()
@@ -46,7 +42,6 @@ class ResnetBlock(nn.Module):
         return h + self.skip(x)
 
 
-# Our next building block:
 class DownEncoderBlock2D(nn.Module):
     def __init__(self, in_ch, out_ch, num_groups=4):
         super().__init__()
@@ -76,7 +71,6 @@ class UpDecoderBlock2D(nn.Module):
         return x
 
 
-# Simple self-attention block
 class AttentionBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
@@ -99,7 +93,6 @@ class AttentionBlock(nn.Module):
         h_attn = torch.bmm(attn, v).permute(0,2,1).reshape(B, C, H, W)
         return x + self.proj(h_attn)
 
-# MidBlock: ResNet → Attention → ResNet
 class MidBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
@@ -149,16 +142,6 @@ class Encoder(nn.Module):
 import torch
 import torch.nn as nn
 
-# 1) Re-use your building blocks:
-#    - ResnetBlock (post-activation)
-#    - DownEncoderBlock2D
-#    - UpDecoderBlock2D
-#    - AttentionBlock
-#    - MidBlock
-#    - LatentBottleneck
-
-# (Assume you’ve defined them exactly as tested before, 
-#  just reducing GroupNorm groups for this small test.)
 
 class AutoencoderKLSmall(nn.Module):
     def __init__(self, in_channels=3, base_channels=(8,16,16,16), latent_channels=4, num_groups=2):

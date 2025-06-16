@@ -1,4 +1,4 @@
-name: vae-conv-percep
+name: vae-conv-percep-l1
 data_root: /Users/justinbarry/projects/data/
 dataset_name: 'celeba'
 # dataset_name: 'cifar10'
@@ -35,5 +35,6 @@ summary: False
 
 # model_type: mlp
 # model_type: unet
-model_type: conv
+# model_type: conv
+model_type: aekl
 compile: False

@@ -2,10 +2,12 @@ import random
 import torch
 import vae.models.vae as vae
 import vae.models.autoencoderkl as aekl
+import vae.models_bak.autoencoderkl as aeklbak
 import sys
 import lpips
 import wandb
 import os
+import warnings
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,9 +24,21 @@ from typing import Callable
 from omegaconf import OmegaConf
 from PIL import Image
 
+patterns = [
+    r".*The parameter 'pretrained' is deprecated.*",
+    r".*pin_memory' argument is set as true but not supported.*",
+    r".*Arguments other than a weight enum*",
+    # add any other regex-style patterns here
+]
+for pat in patterns:
+    warnings.filterwarnings(
+        "ignore",
+        message=pat,
+        category=UserWarning,
+    )
+
 torch.backends.cudnn.benchmark = True
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-LPIPS_FN = lpips.LPIPS(net='vgg').to(device)
 
 
 def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Callable, lpips_fn, config):
@@ -37,7 +51,7 @@ def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Cal
     return loss
 
 
-def l1_kl_percep_loss(recons, inputs, mu, logvar, config):
+def l1_kl_percep_loss(recons, inputs, mu, logvar, config, LPIPS_FN):
     return vae_loss(recons, inputs, mu, logvar, F.l1_loss, LPIPS_FN, config)
 
 
@@ -257,18 +271,27 @@ def train_test_model(config):
         dataset = Subset(dataset, idxs)
 
     train_dl, val_dl = get_train_val_dl(dataset, config)
-    model = vae.VAEConv(
-        in_channels=config.num_channels,
-        out_channels=3,
-        latent_dims=config.latent_dims,
-        p_dropout=config.p_dropout,
-        image_size=config.image_size
-    )
+    if config.model_type == 'conv':
+        model = vae.VAEConv(
+            in_channels=config.num_channels,
+            out_channels=3,
+            latent_dims=config.latent_dims,
+            p_dropout=config.p_dropout,
+            image_size=config.image_size
+        )
+    elif config.model_type == 'aekl':
+       model = aekl.AutoencoderKLSmall(
+           in_channels=config.num_channels,
+           base_channels=(128,256,512,512),
+           latent_channels=4,
+           num_groups=32
+        ) 
     if config.compile: model = torch.compile(model)
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
 
     print("Training Start")
+    LPIPS_FN = lpips.LPIPS(net='vgg').to(device)
 
     ### ADDED ###
     best_val_loss = float('inf')
@@ -284,7 +307,7 @@ def train_test_model(config):
                 # inputs = torch.flatten(inputs, start_dim=1)
                 recons, mu, logvar = model(inputs)
                 optimizer.zero_grad()
-                loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config)
+                loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config, LPIPS_FN)
 
                 #### ADDED #####
                 loss.backward()
@@ -308,7 +331,7 @@ def train_test_model(config):
                     inputs = inputs.to(config.device)
                     # inputs = torch.flatten(inputs, start_dim=1)
                     recons, mu, logvar = model(inputs)
-                    loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config)
+                    loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config, LPIPS_FN)
                     val_loss += loss.item()
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)
@@ -354,18 +377,24 @@ def main():
 
     if config.summary:
         if config.model_type == 'mlp':
-            m = vae.VAEMlp(input_dims=784, hidden_dims=256, latent_dims=16)
+            model = vae.VAEMlp(input_dims=784, hidden_dims=256, latent_dims=16)
             input_shape = (1, 784)
         elif config.model_type == 'conv':
-            m = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
+            model = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
             input_shape = (1, config.num_channels, config.image_size, config.image_size)
-        elif config.model_type == 'sdxl':
-            m = aekl.AutoencoderKLSmall()
+        elif config.model_type == 'aekl':
+            # m = aeklbak.ResnetBlock(3, 32, num_groups=32)
+            model = aekl.AutoencoderKLSmall(
+                in_channels=config.num_channels,
+                base_channels=(128,256,512,512),
+                latent_channels=4,
+                num_groups=32
+            ) 
             input_shape = (1, config.num_channels, config.image_size, config.image_size)
         else:
             raise Exception("Model type for summary not provided or not valid")
         summary(
-            m, 
+            model, 
             input_size=input_shape,
             col_names=["input_size", "output_size", "num_params"],
             # verbose=2
