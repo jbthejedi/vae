@@ -1,21 +1,5 @@
 import torch
-import sys
-import lpips
-import wandb
-import os
-import torchvision
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.utils as vutils
-import matplotlib.pyplot as plt
-import numpy as np
-
-from torchvision import transforms as T
-
-from typing import Callable
-from omegaconf import OmegaConf
-from PIL import Image
-
 
 class ResnetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, num_groups=32):
@@ -52,8 +36,8 @@ class DownEncoderBlock2D(nn.Module):
     def forward(self, x):
         x = self.res1(x)
         x = self.res2(x)
-        x_down = self.down(x)
-        return x_down, x  # x_down is half spatial size; x is the skip
+        x = self.down(x)
+        return x  # x_down is half spatial size; x is the skip
 
 
 class UpDecoderBlock2D(nn.Module):
@@ -63,9 +47,8 @@ class UpDecoderBlock2D(nn.Module):
         self.res1 = ResnetBlock(in_ch, out_ch, num_groups)
         self.res2 = ResnetBlock(out_ch, out_ch, num_groups)
 
-    def forward(self, x, skip):
+    def forward(self, x):
         x = self.up(x)                              # (B, in_ch/2, H×2, W×2)
-        x = torch.cat([x, skip], dim=1)             # (B, in_ch/2 + skip_ch, H×2, W×2)
         x = self.res1(x)
         x = self.res2(x)
         return x
@@ -139,8 +122,6 @@ class Encoder(nn.Module):
             hiddens.append(skip)
         return x, hiddens
 
-import torch
-import torch.nn as nn
 
 
 class AutoencoderKLSmall(nn.Module):
@@ -179,10 +160,8 @@ class AutoencoderKLSmall(nn.Module):
 
     def forward(self, x):
         # ---- Encode ----
-        skips = []
         for down in self.encoder:
-            x, skip = down(x)
-            skips.append(skip)
+            x = down(x)
 
         # ---- Mid + Latent ----
         x = self.mid(x)
@@ -191,8 +170,8 @@ class AutoencoderKLSmall(nn.Module):
         x = self.conv_proj(x)
 
         # ---- Decode ----
-        for up, skip in zip(self.decoder, reversed(skips)):
-            x = up(x, skip)
+        for up in self.decoder:
+            x = up(x)
 
         # ---- Final reconstruction ----
         recon = self.conv_out(x)

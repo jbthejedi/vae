@@ -26,15 +26,16 @@ sample_size: 300
 local_visualization: False
 save_model: False
 # save_model: True
-# load_and_test_model: False
-load_and_test_model: True
-train_model: False
-# train_model: True
+load_and_test_model: False
+# load_and_test_model: True
+# train_model: False
+train_model: True
 summary: False
 # summary: True
 
 # model_type: mlp
 # model_type: unet
 # model_type: conv
-model_type: aekl
+# model_type: aekl
+model_type: aekl_bak
 compile: False

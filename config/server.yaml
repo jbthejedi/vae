@@ -2,7 +2,7 @@ name: vae-aekl
 data_root: /workspace/data
 dataset_name: 'celeba'
 
-batch_size: 2048
+batch_size: 256
 image_size: 64
 n_epochs: 20
 num_channels: 3
@@ -29,6 +29,7 @@ summary: False
 # model_type: mlp
 # model_type: unet
 # model_type: conv
-model_type: aekl
+# model_type: aekl
+model_type: aekl_bak
 
 compile: True

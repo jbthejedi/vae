@@ -286,6 +286,13 @@ def train_test_model(config):
            latent_channels=4,
            num_groups=32
         ) 
+    elif config.model_type == 'aekl_bak':
+       model = aeklbak.AutoencoderKLSmall(
+           in_channels=config.num_channels,
+           base_channels=(128,256,512,512),
+           latent_channels=4,
+           num_groups=32
+        ) 
     if config.compile: model = torch.compile(model)
     model = model.to(config.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
@@ -364,6 +371,42 @@ def train_test_model(config):
         show_samples(config, model, latent_dim=16, num_images=8)
         interpolate_latents(config, model, dataset, num_steps=10)
 
+def print_summary(config):
+    if config.model_type == 'mlp':
+        model = vae.VAEMlp(input_dims=784, hidden_dims=256, latent_dims=16)
+        input_shape = (1, 784)
+    elif config.model_type == 'conv':
+        model = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
+        input_shape = (1, config.num_channels, config.image_size, config.image_size)
+    elif config.model_type == 'aekl':
+        model = aekl.AutoencoderKLSmall(
+            in_channels=config.num_channels,
+            base_channels=(128,256,512,512),
+            latent_channels=4,
+            num_groups=32
+        ) 
+        input_shape = (1, 3, 128, 128)
+    elif config.model_type == 'aekl_bak':
+        # model = aeklbak.DownEncoderBlock2D(in_ch=3, out_ch=16, num_groups=4)
+        # model = aeklbak.MidBlock(32)
+        # model = aeklbak.Encoder()
+        # input_shape = (1, config.num_channels, config.image_size, config.image_size)
+        # input_shape = (1, 32, 64, 64)
+        model = aeklbak.AutoencoderKLSmall(
+            in_channels=3,
+            base_channels=(128,256,512,512),
+            latent_channels=4,
+            num_groups=2
+        )
+        input_shape = (1, 3, 128, 128)
+    else:
+        raise Exception("Model type for summary not provided or not valid")
+    summary(
+        model, 
+        input_size=input_shape,
+        col_names=["input_size", "output_size", "num_params"],
+        # verbose=2
+    )
 
 def main():
     env = os.environ.get("ENV", "local")
@@ -376,34 +419,7 @@ def main():
         torch.set_float32_matmul_precision('high')
 
     if config.summary:
-        if config.model_type == 'mlp':
-            model = vae.VAEMlp(input_dims=784, hidden_dims=256, latent_dims=16)
-            input_shape = (1, 784)
-        elif config.model_type == 'conv':
-            model = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
-            input_shape = (1, config.num_channels, config.image_size, config.image_size)
-        elif config.model_type == 'aekl':
-            # model = aeklbak.ResnetBlock(3, 32, num_groups=32)
-            # model = aekl.AutoencoderKLSmall(
-            #     in_channels=config.num_channels,
-            #     base_channels=(128,256,512,512),
-            #     latent_channels=4,
-            #     num_groups=32
-            # ) 
-            # model = aeklbak.DownEncoderBlock2D(in_ch=3, out_ch=16, num_groups=4)
-            # model = aeklbak.MidBlock(32)
-            model = aeklbak.Encoder()
-            # input_shape = (1, config.num_channels, config.image_size, config.image_size)
-            # input_shape = (1, 32, 64, 64)
-            input_shape = (1, 3, 128, 128)
-        else:
-            raise Exception("Model type for summary not provided or not valid")
-        summary(
-            model, 
-            input_size=input_shape,
-            col_names=["input_size", "output_size", "num_params"],
-            # verbose=2
-        )
+        print_summary(config)
         exit()
 
     if config.load_and_test_model:

@@ -48,7 +48,7 @@ class ResnetBlock(nn.Module):
 
 
 class DownEncoderBlock2D(nn.Module):
-    def __init__(self, in_ch, out_ch, num_groups=4):
+    def __init__(self, in_ch, out_ch, num_groups=32):
         super().__init__()
         self.res1 = ResnetBlock(in_ch, out_ch, num_groups)
         self.res2 = ResnetBlock(out_ch, out_ch, num_groups)
@@ -62,19 +62,11 @@ class DownEncoderBlock2D(nn.Module):
         return x
 
 
-class UpDecoderBlock2D(nn.Module):
-    def __init__(self, in_ch, out_ch, num_groups=4):
-        pass
-
-    def forward(self, x, skip):
-        pass
-
-
 # Simple self-attention block
 class AttentionBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.norm = nn.GroupNorm(num_groups=4, num_channels=channels, eps=1e-6, affine=True)
+        self.norm = nn.GroupNorm(num_groups=32, num_channels=channels, eps=1e-6, affine=True)
         self.q = nn.Conv2d(channels, channels, 1)
         self.k = nn.Conv2d(channels, channels, 1)
         self.v = nn.Conv2d(channels, channels, 1)
@@ -98,9 +90,9 @@ class AttentionBlock(nn.Module):
 class MidBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.res1 = ResnetBlock(channels, channels, num_groups=4)
+        self.res1 = ResnetBlock(channels, channels, num_groups=32)
         self.attn = AttentionBlock(channels)
-        self.res2 = ResnetBlock(channels, channels, num_groups=4)
+        self.res2 = ResnetBlock(channels, channels, num_groups=32)
 
     def forward(self, x):
         x = self.res1(x)
@@ -123,24 +115,80 @@ class LatentBottleneck(nn.Module):
         return z, mu, logvar
 
 
-class Encoder(nn.Module):
-    def __init__(self, ):
+class UpDecoderBlock2D(nn.Module):
+    def __init__(self, in_ch, out_ch, num_groups=32):
         super().__init__()
-        chan1 = 32
-        self.down1 = DownEncoderBlock2D(in_ch=3, out_ch=chan1) # (32, 64, 64)
-        self.down2 = DownEncoderBlock2D(in_ch=chan1, out_ch=chan1)
-
-        self.mid1 = MidBlock(channels=chan1)
+        self.up = nn.Upsample(scale_factor=2, mode="nearest")
+        self.res1 = ResnetBlock(in_ch, out_ch, num_groups)
+        self.res2 = ResnetBlock(out_ch, out_ch, num_groups)
 
     def forward(self, x):
-        x = self.down1(x)
-        x = self.down2(x)
-        x = self.mid1(x)
+        x = self.up(x)
+        x = self.res1(x)
+        x = self.res2(x)
         return x
 
-class AutoencoderKLSmall(nn.Module):
-    def __init__(self, in_channels=3, base_channels=(8,16,16,16), latent_channels=4, num_groups=2):
+
+class Encoder(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        base_channels=(128,256,512,512),
+        latent_channels=4
+    ):
         super().__init__()
+        self.downblocks = nn.ModuleList([
+            DownEncoderBlock2D(in_ch=in_channels, out_ch=base_channels[0]), # (32, 64, 64)
+            DownEncoderBlock2D(in_ch=base_channels[0], out_ch=base_channels[1]),
+            DownEncoderBlock2D(in_ch=base_channels[1], out_ch=base_channels[2]),
+            DownEncoderBlock2D(in_ch=base_channels[2], out_ch=base_channels[3]),
+        ])
+        self.mid = MidBlock(channels=base_channels[3])
+        self.lb = LatentBottleneck(
+            in_channels=base_channels[3],
+            latent_channels=latent_channels,
+        )
 
     def forward(self, x):
-        pass
+        for block in self.downblocks:
+            x = block(x)
+        x = self.mid(x)
+        z, mu, logvar = self.lb(x)
+        return z, mu, logvar
+
+
+class Decoder(nn.Module):
+    def __init__(self, in_ch, base_channels=(128,256,512,512), out_ch=3):
+        super().__init__()
+        self.upblock = nn.ModuleList([
+            UpDecoderBlock2D(in_ch=in_ch, out_ch=base_channels[3]),
+            UpDecoderBlock2D(in_ch=base_channels[3], out_ch=base_channels[2]),
+            UpDecoderBlock2D(in_ch=base_channels[2], out_ch=base_channels[1]),
+            UpDecoderBlock2D(in_ch=base_channels[1], out_ch=base_channels[0]),
+        ])
+        self.conv_out = nn.Conv2d(base_channels[0], out_ch, kernel_size=3, padding=1)
+    
+    def forward(self, z):
+        x = z
+        for block in self.upblock:
+            x = block(x)
+        return self.conv_out(x)
+
+
+class AutoencoderKLSmall(nn.Module):
+    def __init__(
+        self,
+        in_channels=3,
+        base_channels=(128,256,512,512),
+        latent_channels=4,
+        num_groups=32
+    ):
+        super().__init__()
+        self.enc = Encoder(in_channels, base_channels, latent_channels)
+        self.dec = Decoder(in_ch=latent_channels, base_channels=base_channels, out_ch=3)
+
+    def forward(self, x):
+        z, mu, logvar = self.enc(x)
+        x_hat = self.dec(z)
+        x_hat = torch.sigmoid(x_hat)
+        return x_hat, mu, logvar
