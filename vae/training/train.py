@@ -23,18 +23,22 @@ from omegaconf import OmegaConf
 from PIL import Image
 
 torch.backends.cudnn.benchmark = True
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+LPIPS_FN = lpips.LPIPS(net='vgg').to(device)
 
 
-
-
-def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Callable, lpips_fn):
+def vae_loss(input, target, mu : torch.Tensor, logvar : torch.Tensor, loss : Callable, lpips_fn, config):
     # Analytic KL: -0.5 * (1 - log(sig^2) - mu^2 - e^(log(sig^2)))
     recon_loss = loss(input, target, reduction="sum") # F.binary_cross_entropy_with_logits()
     kl_div_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     lpips_loss = lpips_fn(target, input, normalize=True).view(-1).sum()
+    loss = (recon_loss + config.percep_weight * lpips_loss + config.kl_weight * kl_div_loss) / input.size(0)
+    return loss
 
-    return (recon_loss + lpips_loss + kl_div_loss) / input.size(0)
+
+def l1_kl_percep_loss(recons, inputs, mu, logvar, config):
+    return vae_loss(recons, inputs, mu, logvar, F.l1_loss, LPIPS_FN, config)
 
 
 def show_reconstructions(config, model, data_loader, num_images=8):
@@ -155,25 +159,19 @@ def load_and_test_model(config):
     try:
         artifact = api.artifact(artifact_name, type='model')
         artifact_dir = artifact.download()
-        raw_sd = torch.load(f"{artifact_dir}/best_model.pth", map_location="cpu")
-
-        # strip out the "_orig_mod." prefix from every key
-        fixed_sd = {}
-        for k, v in raw_sd.items():
-            # Python 3.9+: you can use k.removeprefix()
-            new_k = k.removeprefix("_orig_mod.")
-            fixed_sd[new_k] = v
+        raw_sd = torch.load(f"{artifact_dir}/best-model.pth", map_location="cpu")
 
         # Load model
-        model = vae.VAEConv(
-            in_channels=config.num_channels,
-            out_channels=3,
-            latent_dims=config.latent_dims,
-            p_dropout=config.p_dropout,
-            image_size=config.image_size
-        )
-        # model.load_state_dict(torch.load(f"{artifact_dir}/best_model.pth", map_location="cpu"))
-        model.load_state_dict(fixed_sd)
+        if config.model_type == 'conv':
+            model = vae.VAEConv(
+                in_channels=config.num_channels,
+                out_channels=3,
+                latent_dims=config.latent_dims,
+                p_dropout=config.p_dropout,
+                image_size=config.image_size
+            )
+        else: raise Exception("No model specified")
+        model.load_state_dict(torch.load(f"{artifact_dir}/best-model.pth", map_location="cpu"))
         model.eval()
         print("Model loaded successfully.")
 
@@ -272,8 +270,6 @@ def train_test_model(config):
 
     print("Training Start")
 
-    lpips_fn = lpips.LPIPS(net='vgg').to(config.device)
-
     ### ADDED ###
     best_val_loss = float('inf')
     train_epoch_loss = 0.0
@@ -288,10 +284,9 @@ def train_test_model(config):
                 # inputs = torch.flatten(inputs, start_dim=1)
                 recons, mu, logvar = model(inputs)
                 optimizer.zero_grad()
-                # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
+                loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config)
 
                 #### ADDED #####
-                loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy, lpips_fn)
                 loss.backward()
 
                 ###### ADDED ######
@@ -313,8 +308,7 @@ def train_test_model(config):
                     inputs = inputs.to(config.device)
                     # inputs = torch.flatten(inputs, start_dim=1)
                     recons, mu, logvar = model(inputs)
-                    # loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy_with_logits)
-                    loss = vae_loss(recons, inputs, mu, logvar, F.binary_cross_entropy, lpips_fn)
+                    loss = l1_kl_percep_loss(recons, inputs, mu, logvar, config)
                     val_loss += loss.item()
                     pbar.set_postfix(val_loss=f"{val_loss / (batch_idx + 1) :.2f}")
             val_epoch_loss = val_loss / len(val_dl)
@@ -342,9 +336,10 @@ def train_test_model(config):
         wandb.log_artifact(artifact)
         tqdm.write("Done.")
     
-    show_reconstructions(config, model, val_dl, num_images=8)
-    show_samples(config, model, latent_dim=16, num_images=8)
-    interpolate_latents(config, model, dataset, num_steps=10)
+    if config.local_visualization:
+        show_reconstructions(config, model, val_dl, num_images=8)
+        show_samples(config, model, latent_dim=16, num_images=8)
+        interpolate_latents(config, model, dataset, num_steps=10)
 
 
 def main():
@@ -352,9 +347,10 @@ def main():
     print(f"env={env}")
     config = load_config(env)
     print("Configuration loaded")
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     config.device, config.env = device, env
     print(f"Seed {config.seed} Device {config.device}")
+    if config.device == 'cuda':
+        torch.set_float32_matmul_precision('high')
 
     if config.summary:
         if config.model_type == 'mlp':
@@ -364,7 +360,7 @@ def main():
             m = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
             input_shape = (1, config.num_channels, config.image_size, config.image_size)
         elif config.model_type == 'sdxl':
-            m = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
+            m = aekl.AutoencoderKLSmall()
             input_shape = (1, config.num_channels, config.image_size, config.image_size)
         else:
             raise Exception("Model type for summary not provided or not valid")
@@ -383,7 +379,6 @@ def main():
 
 
 def load_config(env="local"):
-    print(os.getcwd())
     base_config = OmegaConf.load("config/base.yaml")
 
     env_path = f"config/{env}.yaml"
@@ -393,7 +388,6 @@ def load_config(env="local"):
         config = OmegaConf.merge(base_config, env_config)
     else:
         config = base_config
-
     return config
 
 

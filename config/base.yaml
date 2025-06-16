@@ -7,3 +7,6 @@ p_train_len: 0.9
 kl_clip: 1.0
 kl_start: 1.0
 kl_end: 1.0
+kl_weight: 0.85
+
+percep_weight: 2.0

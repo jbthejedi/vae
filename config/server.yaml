@@ -1,8 +1,8 @@
-name: vae-sdxl
+name: vae-conv-percep-l1
 data_root: /workspace/data
 dataset_name: 'celeba'
 
-batch_size: 256
+batch_size: 2048
 image_size: 64
 n_epochs: 20
 num_channels: 3

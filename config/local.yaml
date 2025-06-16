@@ -12,11 +12,11 @@ n_epochs: 3
 num_channels: 3
 # num_channels: 1
 
-latent_dims: 64
+latent_dims: 128
 
 num_workers: 4
 
-artifact_name: jbarry-team/${project}/${name}_best_model:v20
+artifact_name: jbarry-team/${project}/${name}-best-model:latest
 download_data: False
 wandb_mode: disabled
 
@@ -24,10 +24,10 @@ test_run: True
 sample_size: 300
 
 local_visualization: False
-# save_model: False
-save_model: True
+save_model: False
+# save_model: True
 load_and_test_model: False
-# load_and_test_model: False
+# load_and_test_model: True
 # train_model: False
 train_model: True
 summary: False
