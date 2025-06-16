@@ -13,7 +13,7 @@ latent_dims: 128
 num_workers: 8
 
 artifact_name: jbarry-team/${project}/${name}-best-model:latest
-download_data: True
+download_data: False
 wandb_mode: online
 # wandb_mode: disabled
 
@@ -31,4 +31,4 @@ summary: False
 # model_type: conv
 model_type: aekl
 
-compile: False
+compile: True

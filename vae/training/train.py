@@ -383,14 +383,19 @@ def main():
             model = vae.VAEConv(config.num_channels, 64, config.latent_dims, config.p_dropout, config.image_size)
             input_shape = (1, config.num_channels, config.image_size, config.image_size)
         elif config.model_type == 'aekl':
-            # m = aeklbak.ResnetBlock(3, 32, num_groups=32)
-            model = aekl.AutoencoderKLSmall(
-                in_channels=config.num_channels,
-                base_channels=(128,256,512,512),
-                latent_channels=4,
-                num_groups=32
-            ) 
-            input_shape = (1, config.num_channels, config.image_size, config.image_size)
+            # model = aeklbak.ResnetBlock(3, 32, num_groups=32)
+            # model = aekl.AutoencoderKLSmall(
+            #     in_channels=config.num_channels,
+            #     base_channels=(128,256,512,512),
+            #     latent_channels=4,
+            #     num_groups=32
+            # ) 
+            # model = aeklbak.DownEncoderBlock2D(in_ch=3, out_ch=16, num_groups=4)
+            # model = aeklbak.MidBlock(32)
+            model = aeklbak.Encoder()
+            # input_shape = (1, config.num_channels, config.image_size, config.image_size)
+            # input_shape = (1, 32, 64, 64)
+            input_shape = (1, 3, 128, 128)
         else:
             raise Exception("Model type for summary not provided or not valid")
         summary(
