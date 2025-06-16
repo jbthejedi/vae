@@ -1,4 +1,4 @@
-name: vae-conv-percep-l1
+name: vae-aekl
 data_root: /workspace/data
 dataset_name: 'celeba'
 
