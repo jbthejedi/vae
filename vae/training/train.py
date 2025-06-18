@@ -2,7 +2,7 @@ import random
 import torch
 import vae.models.vae as vae
 import vae.models.autoencoderkl as aekl
-import vae.models_bak.autoencoderkl as aeklbak
+import vae.models_bak.autoencoderkl2 as aeklbak
 import sys
 import lpips
 import wandb
@@ -87,8 +87,16 @@ def show_reconstructions(config, model, data_loader, num_images=8):
 def show_samples(config, model, latent_dim=16, num_images=8):
     model.eval()
     with torch.no_grad():
-        z = torch.randn(num_images, latent_dim).to(config.device)
-        x_sample = model.decode(z)
+        dummy = torch.zeros(1, config.num_channels, config.image_size, config.image_size).to(config.device)
+        z, mu, logvar = model.enc(dummy)
+        latent_shape = z.shape[1:]
+        # z = torch.randn(num_images, latent_dim).to(config.device)
+        # input = torch.empty(num_images, latent_dim, 8, 8)
+        # z = torch.randn_like(input).to(config.device)
+        z = torch.randn(num_images, *latent_shape).to(config.device)
+        print(f"z.shape {z.shape}")
+        # x_sample = model.decode(z)
+        x_sample = model.dec(z)
         # x_sample = torch.sigmoid(x_sample).view(
         #     -1, config.num_channels, config.image_size, config.image_size).cpu()
         x_sample = x_sample.view(
@@ -120,14 +128,18 @@ def interpolate_latents(config, model, dataset, num_steps=10):
             x2 = img2.unsqueeze(0).to(config.device) # (1, 3, 224, 224)
 
         # Encode both to get means
-        mu1, _ = model.encode(x1)
-        mu2, _ = model.encode(x2)
+        # mu1, _ = model.encode(x1)
+        # mu2, _ = model.encode(x2)
+        
+        x_hat1, mu1, _ = model.enc(x1)
+        x_hat2, mu2, _ = model.enc(x2)
 
         # Linearly interpolate in latent space
         interpolated = []
         for alpha in torch.linspace(0, 1, steps=num_steps):
             z = (1 - alpha) * mu1 + alpha * mu2
-            x_hat = model.decode(z).view(
+            # x_hat = model.decode(z).view(
+            x_hat = model.dec(z).view(
                 1, config.num_channels,
                 config.image_size, config.image_size
             )
@@ -184,6 +196,13 @@ def load_and_test_model(config):
                 p_dropout=config.p_dropout,
                 image_size=config.image_size
             )
+        elif config.model_type == 'aekl_bak':
+            model = aeklbak.AutoencoderKLSmall(
+                in_channels=config.num_channels,
+                base_channels=(128,256,512,512),
+                latent_channels=4,
+                num_groups=32
+                ) 
         else: raise Exception("No model specified")
         model.load_state_dict(torch.load(f"{artifact_dir}/best-model.pth", map_location="cpu"))
         model.eval()
@@ -201,8 +220,8 @@ def load_and_test_model(config):
         _, val_dl = get_train_val_dl(dataset, config)
         print("Dataloaders created")
 
-        show_reconstructions(config, model, val_dl)
-        show_samples(config, model, latent_dim=config.latent_dims)
+        # show_reconstructions(config, model, val_dl)
+        show_samples(config, model, latent_dim=4)
         interpolate_latents(config, model, dataset, num_steps=10)
     except wandb.CommError as e:
         print(f"Artifact not found: {artifact_name}")
@@ -281,13 +300,6 @@ def train_test_model(config):
         )
     elif config.model_type == 'aekl':
        model = aekl.AutoencoderKLSmall(
-           in_channels=config.num_channels,
-           base_channels=(128,256,512,512),
-           latent_channels=4,
-           num_groups=32
-        ) 
-    elif config.model_type == 'aekl_bak':
-       model = aeklbak.AutoencoderKLSmall(
            in_channels=config.num_channels,
            base_channels=(128,256,512,512),
            latent_channels=4,

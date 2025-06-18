@@ -1,25 +1,5 @@
 import torch
-import sys
-import lpips
-import wandb
-import os
-import torchvision
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.utils as vutils
-import matplotlib.pyplot as plt
-import numpy as np
-
-from torchvision import transforms as T
-
-from typing import Callable
-from omegaconf import OmegaConf
-from PIL import Image
-
-
-# ----------------------------------
-# Basic building blocks
-# ----------------------------------
 
 class ResnetBlock(nn.Module):
     def __init__(self, in_channels, out_channels, num_groups=32):
@@ -192,3 +172,18 @@ class AutoencoderKLSmall(nn.Module):
         x_hat = self.dec(z)
         x_hat = torch.sigmoid(x_hat)
         return x_hat, mu, logvar
+
+if __name__ == "__main__":
+    model = AutoencoderKLSmall(
+        in_channels=3,
+        base_channels=(128, 256, 512, 512),
+        latent_channels=4,
+        num_groups=32
+    )
+    input = torch.zeros(1, 3, 512, 512)
+    z, mu, logvar = model(input)
+
+    print(f"input.shape {input.shape}")
+    print(f"out.shape {z.shape}")
+    # print(f"mu.shape {mu.shape}")
+    # print(f"logvar.shape {logvar.shape}")
